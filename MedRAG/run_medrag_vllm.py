@@ -45,7 +45,6 @@ class VLLMWrapper:
         # Initialize VLLM with optimized settings for Llama-8B
         self.llm = LLM(
             model=model_name,
-            max_model_len=4096,  # Reduce from 8192 to fit in memory
             tensor_parallel_size=1,  # Adjust based on your GPU count
             trust_remote_code=True,
             gpu_memory_utilization=0.5,  # Use only 50% of GPU memory to avoid OOM

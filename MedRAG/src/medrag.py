@@ -87,7 +87,8 @@ class MedRAG:
             self.context_length = 1024
             self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
             if "mixtral" in llm_name.lower():
-                self.tokenizer.chat_template = open('./templates/mistral-instruct.jinja').read().replace('    ', '').replace('\n', '')
+                template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'mistral-instruct.jinja')
+                self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
                 self.max_length = 32768
                 self.context_length = 30000
             elif "llama-2" in llm_name.lower():
@@ -100,13 +101,15 @@ class MedRAG:
                     self.max_length = 131072
                     self.context_length = 128000
             elif "meditron-70b" in llm_name.lower():
-                self.tokenizer.chat_template = open('./templates/meditron.jinja').read().replace('    ', '').replace('\n', '')
+                template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'meditron.jinja')
+                self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
                 self.max_length = 4096
                 self.context_length = 3072
                 self.templates["cot_prompt"] = meditron_cot
                 self.templates["medrag_prompt"] = meditron_medrag
             elif "pmc_llama" in llm_name.lower():
-                self.tokenizer.chat_template = open('./templates/pmc_llama.jinja').read().replace('    ', '').replace('\n', '')
+                template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'pmc_llama.jinja')
+                self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
                 self.max_length = 2048
                 self.context_length = 1024
             self.model = transformers.pipeline(

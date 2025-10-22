@@ -228,7 +228,7 @@ def main():
         '--llm_name',
         type=str,
         default='meta-llama/Meta-Llama-3-8B-Instruct',
-        help='LLM model name (default: meta-llama/Meta-Llama-3-8B-Instruct)'
+        help='LLM model name (default:meta-llama/Meta-Llama-3-8B-Instruct )'
     )
     
     parser.add_argument(

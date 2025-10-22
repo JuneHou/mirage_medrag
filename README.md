@@ -164,7 +164,7 @@ After running predictions, evaluate results:
 cd MIRAGE
 
 # Evaluate RAG results
-python src/evaluate.py \
+python MIRAGE/src/evaluate.py \
     --results_dir ./prediction \
     --llm_name meta-llama/Meta-Llama-3-8B-Instruct \
     --rag --k 32 \
