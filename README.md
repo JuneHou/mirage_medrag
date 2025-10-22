@@ -209,30 +209,6 @@ cd MedRAG/src/data/corpus
 git clone https://huggingface.co/datasets/MedRAG/textbooks textbooks
 ```
 
-## Performance
-
-Expected inference speed with Llama-3-8B on GPU:
-- MMLU (1,089 questions): ~2-3 hours
-- Full benchmark (7,663 questions): ~24-36 hours
-
-## Citation
-
-If you use this code, please cite the original papers:
-
-```bibtex
-@article{mirage2024,
-  title={MIRAGE: Multimodal Evaluation Benchmark},
-  author={...},
-  year={2024}
-}
-
-@article{medrag2024,
-  title={MedRAG: Medical Retrieval-Augmented Generation},
-  author={...},
-  year={2024}
-}
-```
-
 ## License
 
 This project combines:
@@ -244,8 +220,3 @@ This project combines:
 - Original MIRAGE framework by Teddy-XiongGZ
 - Original MedRAG system by Teddy-XiongGZ
 - VLLM team for efficient LLM inference
-
-## Contact
-
-For issues related to this integration, please open a GitHub issue.
-For questions about the original frameworks, refer to their respective repositories.
