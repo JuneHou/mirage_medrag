@@ -227,8 +227,8 @@ def main():
     parser.add_argument(
         '--llm_name',
         type=str,
-        default='meta-llama/Llama-2-7b-chat-hf',
-        help='LLM model name (default: meta-llama/Llama-2-7b-chat-hf)'
+        default='meta-llama/Meta-Llama-3-8B-Instruct',
+        help='LLM model name (default: meta-llama/Meta-Llama-3-8B-Instruct)'
     )
     
     parser.add_argument(
