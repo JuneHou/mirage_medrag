@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment
+.env
+.venv
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large corpus data files (too large for GitHub) - EXCLUDE ENTIRE CORPUS DIRECTORY
+MedRAG/src/data/corpus/
+!MedRAG/src/data/corpus/.gitkeep
+
+# HuggingFace cache - exclude downloaded models/datasets
+MedRAG/src/data/hf_cache/
+
+# Model checkpoints and cache
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.cache
+
+# VLLM cache
+.cache/
+**/torch_compile_cache/
+
+# Results and predictions
+prediction/
+results/
+wandb/
+*.log
+
+# Temporary files
+/tmp/
+*.tmp
+
+# Test outputs
+test_output.log
