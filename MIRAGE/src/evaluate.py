@@ -23,7 +23,13 @@ def evaluate(dataset, save_dir, split="test", locate_fun=locate_answer):
         fpath = os.path.join(save_dir, split + "_" + dataset.index[q_idx] + ".json")
         answers = []
         for it in json.load(open(fpath))[:1]:
-            answers.append(locate_fun(it.split('"answer_choice": "')[-1].strip()))
+            if isinstance(it, dict):
+                # New format: JSON object
+                answer_choice = it.get("answer_choice", "A")
+                answers.append(locate_fun(answer_choice))
+            else:
+                # Old format: JSON string
+                answers.append(locate_fun(it.split('"answer_choice": "')[-1].strip()))
         # answers.append(locate_fun(it.split('"answer_choice": "')[-1].strip()))
         answers = [ans for ans in answers if ans != "NA"]
         if len(answers) == 0:

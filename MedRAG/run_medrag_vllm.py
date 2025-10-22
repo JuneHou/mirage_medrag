@@ -93,7 +93,7 @@ def parse_llama_response(raw_response):
             # Try to parse the JSON
             parsed = json.loads(json_str)
             return parsed
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             # If direct parsing fails, try to clean up the JSON
             # Handle common VLLM formatting issues
             json_str = re.sub(r'(?<!\\)"([^"]*)"(?=\s*:)', r'"\1"', json_str)  # Fix unescaped quotes in keys
@@ -109,17 +109,21 @@ def parse_llama_response(raw_response):
                 # Fallback: extract answer choice if possible
                 answer_match = re.search(r'["\']?answer_choice["\']?\s*:\s*["\']?([ABCD])', response)
                 if answer_match:
-                    return {"answer_choice": answer_match.group(1)}
+                    fallback_result = {"answer_choice": answer_match.group(1), "step_by_step_thinking": f"Error: '{e}'"}
+                    return fallback_result
                 else:
-                    return {"answer_choice": "A", "raw_response": response}
+                    fallback_result = {"answer_choice": "A", "step_by_step_thinking": f"Error: '{e}'"}
+                    return fallback_result
     
     # If no JSON found, try to extract answer choice directly
     answer_match = re.search(r'\b([ABCD])\b', response)
     if answer_match:
-        return {"answer_choice": answer_match.group(1)}
+        result = {"answer_choice": answer_match.group(1), "step_by_step_thinking": "No structured reasoning found"}
+        return result
     
     # Fallback
-    return {"answer_choice": "A", "raw_response": response}
+    result = {"answer_choice": "A", "step_by_step_thinking": "No answer found in response"}
+    return result
 
 def vllm_medrag_answer(medrag_instance, question, options=None, k=32, **kwargs):
     """

@@ -52,10 +52,10 @@ QADataset = mirage_utils.QADataset
 def save_prediction(question_id, answer_dict, save_path):
     """Save prediction in MIRAGE format"""
     # Format the answer as expected by evaluate.py
-    formatted_answer = json.dumps({
+    formatted_answer = {
         "step_by_step_thinking": answer_dict["step_by_step_thinking"],
         "answer_choice": answer_dict["answer_choice"]
-    })
+    }
     
     # Save as list with single element (matches MIRAGE format)
     with open(save_path, 'w') as f:
