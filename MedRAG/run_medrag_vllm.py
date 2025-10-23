@@ -76,8 +76,17 @@ class VLLMWrapper:
 
 def parse_llama_response(raw_response):
     """
-    Parse VLLM Llama model response to extract clean JSON
-    Handles the specific formatting issues from VLLM Llama models
+    Legacy function - now redirects to parse_response_standard
+    for consistency with original MedRAG approach
+    """
+    return parse_response_standard(raw_response)
+    return result
+
+def parse_response_standard(raw_response):
+    """
+    Standard response parser for all models following original MedRAG approach.
+    All models (including PMC-LLaMA) should produce consistent JSON format.
+    This matches the original MedRAG repository methodology.
     """
     import json
     import re
@@ -85,49 +94,76 @@ def parse_llama_response(raw_response):
     # Remove any extra whitespace and newlines
     response = raw_response.strip()
     
-    # Try to find JSON content between curly braces
+    # Try to find JSON content between curly braces (most reliable)
     json_match = re.search(r'\{.*\}', response, re.DOTALL)
     if json_match:
         json_str = json_match.group(0)
         try:
             # Try to parse the JSON
             parsed = json.loads(json_str)
-            return parsed
-        except json.JSONDecodeError as e:
-            # If direct parsing fails, try to clean up the JSON
-            # Handle common VLLM formatting issues
-            json_str = re.sub(r'(?<!\\)"([^"]*)"(?=\s*:)', r'"\1"', json_str)  # Fix unescaped quotes in keys
-            json_str = re.sub(r'(?<!\\)"([^"]*)"(?=\s*[,}])', r'"\1"', json_str)  # Fix unescaped quotes in values
-            
-            try:
-                parsed = json.loads(json_str)
+            # Validate required fields
+            if "step_by_step_thinking" in parsed and "answer_choice" in parsed:
                 return parsed
-            except json.JSONDecodeError as e:
-                print(f"Warning: Could not parse JSON response: {e}")
-                print(f"Raw response: {response[:200]}...")
-                
-                # Fallback: extract answer choice if possible
-                answer_match = re.search(r'["\']?answer_choice["\']?\s*:\s*["\']?([ABCD])', response)
-                if answer_match:
-                    fallback_result = {"answer_choice": answer_match.group(1), "step_by_step_thinking": f"Error: '{e}'"}
-                    return fallback_result
-                else:
-                    fallback_result = {"answer_choice": "A", "step_by_step_thinking": f"Error: '{e}'"}
-                    return fallback_result
+        except json.JSONDecodeError:
+            pass
     
-    # If no JSON found, try to extract answer choice directly
+    # Fallback: try to extract answer choice and reasoning separately
+    # Look for answer choice patterns
+    answer_patterns = [
+        r'"answer_choice"\s*:\s*"([ABCD])"',
+        r'"answer_choice"\s*:\s*([ABCD])',
+        r'answer_choice["\']?\s*:\s*["\']?([ABCD])',
+        r'(?:answer is|choice is|answer:|choice:)\s*([ABCD])',
+        r'\b([ABCD])\s*(?:is the|would be the)?\s*(?:correct|right|answer)',
+    ]
+    
+    answer_choice = None
+    for pattern in answer_patterns:
+        match = re.search(pattern, response, re.IGNORECASE)
+        if match:
+            answer_choice = match.group(1)
+            break
+    
+    # Look for reasoning patterns
+    reasoning_patterns = [
+        r'"step_by_step_thinking"\s*:\s*"([^"]*)"',
+        r'step_by_step_thinking["\']?\s*:\s*["\']([^"\']*)["\']',
+        r'reasoning["\']?\s*:\s*["\']([^"\']*)["\']',
+        r'explanation["\']?\s*:\s*["\']([^"\']*)["\']',
+    ]
+    
+    reasoning = None
+    for pattern in reasoning_patterns:
+        match = re.search(pattern, response, re.IGNORECASE | re.DOTALL)
+        if match:
+            reasoning = match.group(1).strip()
+            break
+    
+    # If we found an answer choice, return it with available reasoning
+    if answer_choice:
+        return {
+            "step_by_step_thinking": reasoning or "Extracted from model response",
+            "answer_choice": answer_choice
+        }
+    
+    # Last resort: look for any single letter A, B, C, or D
     answer_match = re.search(r'\b([ABCD])\b', response)
     if answer_match:
-        result = {"answer_choice": answer_match.group(1), "step_by_step_thinking": "No structured reasoning found"}
-        return result
+        return {
+            "step_by_step_thinking": "Fallback: extracted single letter answer from response",
+            "answer_choice": answer_match.group(1)
+        }
     
-    # Fallback
-    result = {"answer_choice": "A", "step_by_step_thinking": "No answer found in response"}
-    return result
+    # Ultimate fallback
+    return {
+        "answer_choice": "A", 
+        "step_by_step_thinking": "Error: Could not parse model response"
+    }
 
 def vllm_medrag_answer(medrag_instance, question, options=None, k=32, **kwargs):
     """
     Wrapper function to handle VLLM-specific response parsing for MedRAG
+    Following original MedRAG approach - all models use the same parsing logic
     """
     # Get the raw answer from MedRAG
     try:
@@ -135,7 +171,9 @@ def vllm_medrag_answer(medrag_instance, question, options=None, k=32, **kwargs):
         
         # Parse the VLLM response if it's a string
         if isinstance(answer, str):
-            parsed_answer = parse_llama_response(answer)
+            # Use standard parser for ALL models (including PMC-LLaMA)
+            # This follows the original MedRAG repository approach
+            parsed_answer = parse_response_standard(answer)
         else:
             parsed_answer = answer
             

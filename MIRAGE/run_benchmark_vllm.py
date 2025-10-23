@@ -37,7 +37,7 @@ sys.path.insert(0, medrag_path)
 sys.path.insert(0, mirage_src_path)
 
 # Import from MedRAG
-from run_medrag_vllm import patch_medrag_for_vllm, vllm_medrag_answer, parse_llama_response
+from run_medrag_vllm import patch_medrag_for_vllm, vllm_medrag_answer, parse_response_standard
 from src.medrag import MedRAG
 
 # Import from MIRAGE - be specific to avoid conflicts
