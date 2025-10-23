@@ -8,7 +8,7 @@ import os
 import sys
 
 # Set GPU device to cuda:4
-os.environ['CUDA_VISIBLE_DEVICES'] = '3,4'
+os.environ['CUDA_VISIBLE_DEVICES'] = '5,6'
 
 # Get the absolute path to MedRAG directory
 medrag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -54,21 +54,46 @@ class VLLMWrapper:
         
     def __call__(self, prompt, **kwargs):
         """Make the wrapper callable like transformers.pipeline"""
+        # DEBUG: Track parameter flow
+        print(f"DEBUG: VLLMWrapper received kwargs: {kwargs}")
+        
+        # Remove parameters that could conflict with VLLM/transformers
+        # These are parameters that the original pipeline might set but we handle differently
+        conflicting_params = {'max_new_tokens', 'truncation', 'stopping_criteria', 'return_full_text'}
+        clean_kwargs = {k: v for k, v in kwargs.items() if k not in conflicting_params}
+        print(f"DEBUG: Removed conflicting params, clean_kwargs: {clean_kwargs}")
+        
         # Extract relevant parameters and set defaults
-        max_length = kwargs.get('max_length', 2048)
-        do_sample = kwargs.get('do_sample', False)
+        do_sample = clean_kwargs.get('do_sample', False)
+        
+        # Original MedRAG uses max_length for total sequence length
+        # For VLLM, we need to calculate max_new_tokens from max_length
+        max_length = clean_kwargs.get('max_length', 2048)
+        print(f"DEBUG: Using max_length={max_length}")
+        
+        # Calculate how many tokens are already in the prompt
+        prompt_tokens = len(self.tokenizer.encode(prompt))
+        
+        # Calculate max_new_tokens as the difference
+        max_new_tokens = max(1, max_length - prompt_tokens)  # At least 1 token
+        print(f"DEBUG: Calculated max_new_tokens={max_new_tokens} (max_length={max_length} - prompt_tokens={prompt_tokens})")
         
         # Create sampling parameters for vllm
         sampling_params = SamplingParams(
             temperature=0.0 if not do_sample else 0.7,
             top_p=0.9 if do_sample else 1.0,
-            max_tokens=max_length - len(self.tokenizer.encode(prompt)),
-            stop=kwargs.get('stop_sequences', None)
+            max_tokens=max_new_tokens,  # This is the key - no conflict now
+            stop=clean_kwargs.get('stop_sequences', None)
         )
+        print(f"DEBUG: SamplingParams created with max_tokens={max_new_tokens}")
         
         # Generate response
         outputs = self.llm.generate([prompt], sampling_params)
         generated_text = outputs[0].outputs[0].text
+        
+        # DEBUG: Print response details
+        print(f"DEBUG: VLLM generated response length: {len(generated_text)}")
+        print(f"DEBUG: VLLM raw response: {generated_text[:300]}...")
         
         # Return in the expected format (similar to transformers.pipeline)
         # Note: MedRAG expects to extract the generated part by removing the prompt
@@ -84,12 +109,15 @@ def parse_llama_response(raw_response):
 
 def parse_response_standard(raw_response):
     """
-    Standard response parser for all models following original MedRAG approach.
-    All models (including PMC-LLaMA) should produce consistent JSON format.
-    This matches the original MedRAG repository methodology.
+    Universal response parser for ALL models including PMC-LLaMA
+    This follows the original MedRAG approach - same parsing for all models
     """
     import json
     import re
+    
+    # DEBUG: Print the response we're trying to parse
+    print(f"DEBUG: Parsing response of length {len(raw_response)}")
+    print(f"DEBUG: Response content: {raw_response[:500]}...")
     
     # Remove any extra whitespace and newlines
     response = raw_response.strip()
@@ -141,10 +169,12 @@ def parse_response_standard(raw_response):
     
     # If we found an answer choice, return it with available reasoning
     if answer_choice:
-        return {
+        result = {
             "step_by_step_thinking": reasoning or "Extracted from model response",
             "answer_choice": answer_choice
         }
+        print(f"DEBUG: Successfully parsed - Answer: {answer_choice}, Reasoning length: {len(result['step_by_step_thinking'])}")
+        return result
     
     # Last resort: look for any single letter A, B, C, or D
     answer_match = re.search(r'\b([ABCD])\b', response)
@@ -213,10 +243,13 @@ def patch_medrag_for_vllm():
     original_pipeline = transformers.pipeline
     
     def vllm_pipeline(task, model=None, **kwargs):
-        if task == "text-generation" and model and ("llama" in model.lower()):
-            print(f"Using VLLM for model: {model}")
+        # Use VLLM for supported models (Llama, Qwen, and other common models)
+        supported_models = ["llama", "qwen", "meta-llama", "mistral", "mixtral"]
+        if task == "text-generation" and model and any(name in model.lower() for name in supported_models):
+            print(f"DEBUG: Using VLLM for model: {model}")
             return VLLMWrapper(model, **kwargs)
         else:
+            print(f"DEBUG: Using transformers pipeline for model: {model}")
             return original_pipeline(task, model=model, **kwargs)
     
     transformers.pipeline = vllm_pipeline

@@ -112,6 +112,16 @@ class MedRAG:
                 self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
                 self.max_length = 2048
                 self.context_length = 1024
+            elif "qwen" in llm_name.lower():
+                # Qwen3-8B supports much longer context than the default
+                # Based on model documentation, Qwen3-8B supports 8192+ tokens
+                self.max_length = 8192
+                self.context_length = 7168
+                print(f"DEBUG: Set Qwen max_length={self.max_length}, context_length={self.context_length}")
+            else:
+                # Default fallback for unknown models
+                self.max_length = 2048
+                self.context_length = 1024
             self.model = transformers.pipeline(
                 "text-generation",
                 model=self.llm_name,
@@ -157,6 +167,10 @@ class MedRAG:
                 # stopping_criteria = custom_stop(["###", "User:", "\n\n\n"], self.tokenizer, input_len=len(self.tokenizer.encode(prompt_cot, add_special_tokens=True)))
                 stopping_criteria = self.custom_stop(["###", "User:", "\n\n\n"], input_len=len(self.tokenizer.encode(prompt, add_special_tokens=True)))
             if "llama-3" in self.llm_name.lower():
+                # Filter out parameters that conflict with max_length
+                # The original MedRAG only uses max_length, so we remove any max_new_tokens
+                filtered_kwargs = {k: v for k, v in kwargs.items() if k not in ['max_new_tokens']}
+                
                 response = self.model(
                     prompt,
                     do_sample=False,
@@ -165,9 +179,13 @@ class MedRAG:
                     max_length=self.max_length,
                     truncation=True,
                     stopping_criteria=stopping_criteria,
-                    **kwargs
+                    **filtered_kwargs
                 )
             else:
+                # Filter out parameters that conflict with max_length
+                # The original MedRAG only uses max_length, so we remove any max_new_tokens
+                filtered_kwargs = {k: v for k, v in kwargs.items() if k not in ['max_new_tokens']}
+                
                 response = self.model(
                     prompt,
                     do_sample=False,
@@ -176,7 +194,7 @@ class MedRAG:
                     max_length=self.max_length,
                     truncation=True,
                     stopping_criteria=stopping_criteria,
-                    **kwargs
+                    **filtered_kwargs
                 )
             # ans = response[0]["generated_text"]
             ans = response[0]["generated_text"][len(prompt):]
