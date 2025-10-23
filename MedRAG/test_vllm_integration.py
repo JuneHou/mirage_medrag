@@ -11,7 +11,7 @@ sys.path.append('.')
 
 def test_vllm_medrag():
     try:
-        from run_medrag_vllm import patch_medrag_for_vllm, vllm_medrag_answer, parse_model_response
+        from run_medrag_vllm import patch_medrag_for_vllm, vllm_medrag_answer, parse_llama_response
         from src.medrag import MedRAG
         
         print("Testing VLLM MedRAG integration...")
@@ -27,7 +27,7 @@ def test_vllm_medrag():
         
         for i, test_resp in enumerate(test_responses):
             print(f"  Test {i+1}: {test_resp[:50]}...")
-            parsed = parse_model_response(test_resp)
+            parsed = parse_llama_response(test_resp)
             print(f"  Parsed: {parsed}")
         
         # Test corpus availability
