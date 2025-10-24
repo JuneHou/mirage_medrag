@@ -8,7 +8,7 @@ import os
 import sys
 
 # Set GPU device to cuda:4
-os.environ['CUDA_VISIBLE_DEVICES'] = '5,6'
+os.environ['CUDA_VISIBLE_DEVICES'] = '5'
 
 # Get the absolute path to MedRAG directory
 medrag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -45,7 +45,7 @@ class VLLMWrapper:
         # Initialize VLLM with optimized settings for Llama-8B
         self.llm = LLM(
             model=model_name,
-            tensor_parallel_size=2,  # Adjust based on your GPU count
+            tensor_parallel_size=1,  # Adjust based on your GPU count
             trust_remote_code=True,
             gpu_memory_utilization=0.5,  # Use only 50% of GPU memory to avoid OOM
             **vllm_kwargs
