@@ -8,7 +8,7 @@ import os
 import sys
 
 # Set GPU device to cuda:4
-os.environ['CUDA_VISIBLE_DEVICES'] = '5'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 # Get the absolute path to MedRAG directory
 medrag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -47,7 +47,7 @@ class VLLMWrapper:
             model=model_name,
             tensor_parallel_size=1,  # Adjust based on your GPU count
             trust_remote_code=True,
-            gpu_memory_utilization=0.5,  # Use only 50% of GPU memory to avoid OOM
+            gpu_memory_utilization=0.7,  # Use only 50% of GPU memory to avoid OOM
             **vllm_kwargs
         )
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
