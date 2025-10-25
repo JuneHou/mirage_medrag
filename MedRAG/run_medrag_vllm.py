@@ -124,20 +124,50 @@ class VLLMWrapper:
         # Note: MedRAG expects to extract the generated part by removing the prompt
         return [{"generated_text": prompt + generated_text}]
 
-def parse_response_vllm(raw_response, model_name=None):
+def parse_response_vllm(raw_response, model_name=None, question_id=None, log_dir=None):
     """
     Legacy function - now redirects to parse_response_standard
     for consistency with original MedRAG approach
     """
-    return parse_response_standard(raw_response, model_name=model_name)
+    return parse_response_standard(raw_response, model_name=model_name, question_id=question_id, log_dir=log_dir)
 
-def parse_response_standard(raw_response, model_name=None):
+def log_pmc_response(raw_response, model_name, question_id=None, log_dir=None):
+    """
+    Log PMC-LLaMA raw response to file for debugging
+    """
+    if model_name and "pmc" in model_name.lower() and question_id and log_dir:
+        try:
+            import os
+            # Create log file path with same name as question_id
+            log_file = os.path.join(log_dir, f"{question_id}_raw_response.txt")
+            
+            # Ensure log directory exists
+            os.makedirs(log_dir, exist_ok=True)
+            
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.write(f"Model: {model_name}\n")
+                f.write(f"Question ID: {question_id}\n")
+                f.write(f"Response Length: {len(raw_response)}\n")
+                f.write("="*50 + "\n")
+                f.write("RAW RESPONSE:\n")
+                f.write("="*50 + "\n")
+                f.write(raw_response)
+                f.write("\n" + "="*50 + "\n")
+            
+            print(f"DEBUG: PMC-LLaMA raw response logged to: {log_file}")
+        except Exception as e:
+            print(f"DEBUG: Failed to log PMC-LLaMA response: {e}")
+
+def parse_response_standard(raw_response, model_name=None, question_id=None, log_dir=None):
     """
     Universal response parser for ALL models with model-specific handling
     This follows the original MedRAG approach with PMC-LLaMA specific extensions
     """
     import json
     import re
+    
+    # Log PMC-LLaMA raw responses for debugging
+    log_pmc_response(raw_response, model_name, question_id, log_dir)
     
     # DEBUG: Print the response we're trying to parse
     print(f"DEBUG: Parsing response of length {len(raw_response)} for model: {model_name}")
@@ -255,7 +285,7 @@ def parse_response_standard(raw_response, model_name=None):
         "step_by_step_thinking": "Error: Could not parse model response"
     }
 
-def vllm_medrag_answer(medrag_instance, question, options=None, k=32, **kwargs):
+def vllm_medrag_answer(medrag_instance, question, options=None, k=32, question_id=None, log_dir=None, **kwargs):
     """
     Wrapper function to handle VLLM-specific response parsing for MedRAG
     Following original MedRAG approach - all models use the same parsing logic
@@ -267,9 +297,9 @@ def vllm_medrag_answer(medrag_instance, question, options=None, k=32, **kwargs):
         # Parse the VLLM response if it's a string
         if isinstance(answer, str):
             # Use standard parser with model-specific handling
-            # Pass the model name for PMC-LLaMA specific parsing
+            # Pass the model name for PMC-LLaMA specific parsing and logging
             model_name = getattr(medrag_instance, 'llm_name', None)
-            parsed_answer = parse_response_standard(answer, model_name=model_name)
+            parsed_answer = parse_response_standard(answer, model_name=model_name, question_id=question_id, log_dir=log_dir)
         else:
             parsed_answer = answer
             

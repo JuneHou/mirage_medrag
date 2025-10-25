@@ -173,7 +173,9 @@ def run_benchmark(
                         medrag,
                         question=question_data['question'],
                         options=question_data.get('options'),
-                        k=k
+                        k=k,
+                        question_id=f"{split}_{question_id}",
+                        log_dir=save_dir
                     )
                 else:
                     # CoT mode (no RAG)
@@ -181,7 +183,9 @@ def run_benchmark(
                         medrag,
                         question=question_data['question'],
                         options=question_data.get('options'),
-                        k=0  # No retrieval
+                        k=0,  # No retrieval
+                        question_id=f"{split}_{question_id}",
+                        log_dir=save_dir
                     )
                 
                 # Save prediction
