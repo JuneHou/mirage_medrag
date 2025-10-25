@@ -90,10 +90,12 @@ class MedRAG:
                 self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
                 self.max_length = 32768
                 self.context_length = 30000
+                self.tokenizer.model_max_length = self.max_length
             elif "llama-2" in llm_name.lower():
                 self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
                 self.max_length = 4096
                 self.context_length = 3072
+                self.tokenizer.model_max_length = self.max_length
             elif "llama-3" in llm_name.lower():
                 self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
                 self.max_length = 8192
@@ -101,14 +103,18 @@ class MedRAG:
                 if ".1" in llm_name or ".2" in llm_name:
                     self.max_length = 131072
                     self.context_length = 128000
+                self.tokenizer.model_max_length = self.max_length
             elif "pmc" in llm_name.lower():
                 self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
-                #template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'pmc_llama.jinja')
-                #self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
+                template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'pmc_llama.jinja')
+                self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
                 self.max_length = 2048
                 self.context_length = 1024
-                # print(f"DEBUG: Set PMC-LLaMA max_length={self.max_length}, context_length={self.context_length}")
-                # print(f"DEBUG: PMC-LLaMA template loaded from: {template_path}")
+                # CRITICAL: Override tokenizer's model_max_length to match our max_length
+                self.tokenizer.model_max_length = self.max_length
+                print(f"DEBUG: Set PMC-LLaMA max_length={self.max_length}, context_length={self.context_length}")
+                print(f"DEBUG: PMC-LLaMA template loaded from: {template_path}")
+                print(f"DEBUG: PMC-LLaMA tokenizer.model_max_length set to: {self.tokenizer.model_max_length}")
             elif "qwen" in llm_name.lower():
                 # Qwen3-8B supports much longer context than the default
                 # Based on model documentation, Qwen3-8B supports 8192+ tokens

@@ -8,7 +8,7 @@ import os
 import sys
 
 # Set GPU device to cuda:4
-os.environ['CUDA_VISIBLE_DEVICES'] = '4'
+os.environ['CUDA_VISIBLE_DEVICES'] = '4,5'
 
 # Get the absolute path to MedRAG directory
 medrag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -46,12 +46,24 @@ class VLLMWrapper:
             
             # Initialize VLLM with optimized settings
             gpu_utilization = 0.7
+            
+            # Set explicit max_model_len to override any 512 token limits
+            # This is critical for PMC-LLaMA models that might have incorrect config
+            max_model_length = 2048  # Match what we set in medrag.py
+            if "pmc" in model_name.lower():
+                max_model_length = 2048  # PMC-LLaMA specific
+            elif "llama-3" in model_name.lower():
+                max_model_length = 8192
+            elif "llama-2" in model_name.lower():
+                max_model_length = 4096
                 
             self.llm = LLM(
                 model=model_name,
-                tensor_parallel_size=1,  # Adjust based on your GPU count
+                tensor_parallel_size=2,  # Adjust based on your GPU count
                 trust_remote_code=True,
                 gpu_memory_utilization=gpu_utilization,
+                max_model_len=max_model_length,  # Explicitly set this to override config
+                enforce_eager=True,  # Disable CUDA graphs to avoid 512 token limits
                 **vllm_kwargs
             )
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -136,6 +148,7 @@ def parse_response_standard(raw_response, model_name=None):
     
     # PMC-LLaMA specific: Handle array format like [{"text": "...", "answer_choice": "B"}] or [{"text": "...", "answer": "B"}]
     if model_name and "pmc" in model_name.lower():
+        # First try: Look for array format with answer_choice/answer field
         array_match = re.search(r'\[\s*\{[^}]*"(?:answer_choice|answer)"\s*:\s*"([ABCD])"[^}]*\}\s*\]', response, re.DOTALL)
         if array_match:
             answer_choice = array_match.group(1)
@@ -147,6 +160,28 @@ def parse_response_standard(raw_response, model_name=None):
                 "answer_choice": answer_choice
             }
             print(f"DEBUG: PMC-LLaMA array format parsed - Answer: {answer_choice}, Reasoning length: {len(reasoning)}")
+            return result
+        
+        # Second try: PMC-LLaMA specific format with ###Answer: OPTION X IS CORRECT
+        answer_option_match = re.search(r'###\s*Answer:\s*OPTION\s+([ABCD])\s+IS\s+CORRECT', response, re.IGNORECASE)
+        if answer_option_match:
+            answer_choice = answer_option_match.group(1)
+            # Extract rationale if available
+            rationale_match = re.search(r'###\s*Rationale:\s*(.*?)###\s*Answer:', response, re.IGNORECASE | re.DOTALL)
+            reasoning = rationale_match.group(1).strip() if rationale_match else "PMC-LLaMA rationale extracted"
+            
+            # Also try to extract the text options for additional context
+            text_options = []
+            text_matches = re.findall(r'"text"\s*:\s*"([^"]*)"', response)
+            if text_matches:
+                text_options = text_matches
+                reasoning = f"Options considered: {'; '.join(text_options[:3])}. {reasoning}"
+            
+            result = {
+                "step_by_step_thinking": reasoning,
+                "answer_choice": answer_choice
+            }
+            print(f"DEBUG: PMC-LLaMA ###Answer format parsed - Answer: {answer_choice}, Reasoning length: {len(reasoning)}")
             return result
     
     # Try to find JSON content between curly braces (most reliable)
@@ -168,6 +203,8 @@ def parse_response_standard(raw_response, model_name=None):
         r'"answer_choice"\s*:\s*"([ABCD])"',
         r'"answer_choice"\s*:\s*([ABCD])',
         r'answer_choice["\']?\s*:\s*["\']?([ABCD])',
+        r'###\s*Answer:\s*OPTION\s+([ABCD])\s+IS\s+CORRECT',  # PMC-LLaMA specific
+        r'OPTION\s+([ABCD])\s+IS\s+CORRECT',  # PMC-LLaMA without ###
         r'(?:answer is|choice is|answer:|choice:)\s*([ABCD])',
         r'\b([ABCD])\s*(?:is the|would be the)?\s*(?:correct|right|answer)',
     ]
@@ -183,6 +220,7 @@ def parse_response_standard(raw_response, model_name=None):
     reasoning_patterns = [
         r'"step_by_step_thinking"\s*:\s*"([^"]*)"',
         r'step_by_step_thinking["\']?\s*:\s*["\']([^"\']*)["\']',
+        r'###\s*Rationale:\s*(.*?)(?:###|$)',  # PMC-LLaMA specific rationale
         r'reasoning["\']?\s*:\s*["\']([^"\']*)["\']',
         r'explanation["\']?\s*:\s*["\']([^"\']*)["\']',
     ]
