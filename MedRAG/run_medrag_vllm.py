@@ -8,7 +8,7 @@ import os
 import sys
 
 # Set GPU device to cuda:4
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 
 # Get the absolute path to MedRAG directory
 medrag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,27 +29,39 @@ class VLLMWrapper:
     """Wrapper to make VLLM compatible with MedRAG's transformers.pipeline interface"""
     
     def __init__(self, model_name, **kwargs):
+        print(f"DEBUG: Initializing VLLMWrapper for model: {model_name}")
         self.model_name = model_name
         
-        # Filter out kwargs that are not supported by VLLM
-        vllm_supported_kwargs = {
-            'tensor_parallel_size', 'dtype', 'quantization', 
-            'gpu_memory_utilization', 'swap_space', 'enforce_eager',
-            'max_model_len', 'trust_remote_code', 'download_dir',
-            'load_format', 'seed'
-        }
-        
-        # Only pass supported kwargs to VLLM
-        vllm_kwargs = {k: v for k, v in kwargs.items() if k in vllm_supported_kwargs}
-        
-        # Initialize VLLM with optimized settings for Llama-8B
-        self.llm = LLM(
-            model=model_name,
-            tensor_parallel_size=1,  # Adjust based on your GPU count
-            trust_remote_code=True,
-            gpu_memory_utilization=0.7,  # Use only 50% of GPU memory to avoid OOM
-            **vllm_kwargs
-        )
+        try:
+            # Filter out kwargs that are not supported by VLLM
+            vllm_supported_kwargs = {
+                'tensor_parallel_size', 'dtype', 'quantization', 
+                'gpu_memory_utilization', 'swap_space', 'enforce_eager',
+                'max_model_len', 'trust_remote_code', 'download_dir',
+                'load_format', 'seed'
+            }
+            
+            # Only pass supported kwargs to VLLM
+            vllm_kwargs = {k: v for k, v in kwargs.items() if k in vllm_supported_kwargs}
+            
+            # Initialize VLLM with optimized settings
+            gpu_utilization = 0.7
+                
+            self.llm = LLM(
+                model=model_name,
+                tensor_parallel_size=1,  # Adjust based on your GPU count
+                trust_remote_code=True,
+                gpu_memory_utilization=gpu_utilization,
+                **vllm_kwargs
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            print(f"DEBUG: VLLMWrapper initialized successfully for {model_name}")
+            
+        except Exception as e:
+            print(f"ERROR: Failed to initialize VLLMWrapper for {model_name}: {e}")
+            print(f"ERROR: Exception type: {type(e).__name__}")
+            raise e
+
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         
     def __call__(self, prompt, **kwargs):
@@ -90,6 +102,7 @@ class VLLMWrapper:
         # Generate response
         outputs = self.llm.generate([prompt], sampling_params)
         generated_text = outputs[0].outputs[0].text
+        print(f"Generated text: {generated_text[:300]}...")  # Print first 300 chars
         
         # DEBUG: Print response details
         print(f"DEBUG: VLLM generated response length: {len(generated_text)}")
@@ -99,28 +112,42 @@ class VLLMWrapper:
         # Note: MedRAG expects to extract the generated part by removing the prompt
         return [{"generated_text": prompt + generated_text}]
 
-def parse_llama_response(raw_response):
+def parse_response_vllm(raw_response, model_name=None):
     """
     Legacy function - now redirects to parse_response_standard
     for consistency with original MedRAG approach
     """
-    return parse_response_standard(raw_response)
-    return result
+    return parse_response_standard(raw_response, model_name=model_name)
 
-def parse_response_standard(raw_response):
+def parse_response_standard(raw_response, model_name=None):
     """
-    Universal response parser for ALL models including PMC-LLaMA
-    This follows the original MedRAG approach - same parsing for all models
+    Universal response parser for ALL models with model-specific handling
+    This follows the original MedRAG approach with PMC-LLaMA specific extensions
     """
     import json
     import re
     
     # DEBUG: Print the response we're trying to parse
-    print(f"DEBUG: Parsing response of length {len(raw_response)}")
+    print(f"DEBUG: Parsing response of length {len(raw_response)} for model: {model_name}")
     print(f"DEBUG: Response content: {raw_response[:500]}...")
     
     # Remove any extra whitespace and newlines
     response = raw_response.strip()
+    
+    # PMC-LLaMA specific: Handle array format like [{"text": "...", "answer_choice": "B"}] or [{"text": "...", "answer": "B"}]
+    if model_name and "pmc" in model_name.lower():
+        array_match = re.search(r'\[\s*\{[^}]*"(?:answer_choice|answer)"\s*:\s*"([ABCD])"[^}]*\}\s*\]', response, re.DOTALL)
+        if array_match:
+            answer_choice = array_match.group(1)
+            # Extract text field if available
+            text_match = re.search(r'"text"\s*:\s*"([^"]*)"', array_match.group(0))
+            reasoning = text_match.group(1) if text_match else "PMC-LLaMA response parsed"
+            result = {
+                "step_by_step_thinking": reasoning,
+                "answer_choice": answer_choice
+            }
+            print(f"DEBUG: PMC-LLaMA array format parsed - Answer: {answer_choice}, Reasoning length: {len(reasoning)}")
+            return result
     
     # Try to find JSON content between curly braces (most reliable)
     json_match = re.search(r'\{.*\}', response, re.DOTALL)
@@ -201,9 +228,10 @@ def vllm_medrag_answer(medrag_instance, question, options=None, k=32, **kwargs):
         
         # Parse the VLLM response if it's a string
         if isinstance(answer, str):
-            # Use standard parser for ALL models (including PMC-LLaMA)
-            # This follows the original MedRAG repository approach
-            parsed_answer = parse_response_standard(answer)
+            # Use standard parser with model-specific handling
+            # Pass the model name for PMC-LLaMA specific parsing
+            model_name = getattr(medrag_instance, 'llm_name', None)
+            parsed_answer = parse_response_standard(answer, model_name=model_name)
         else:
             parsed_answer = answer
             
@@ -243,8 +271,8 @@ def patch_medrag_for_vllm():
     original_pipeline = transformers.pipeline
     
     def vllm_pipeline(task, model=None, **kwargs):
-        # Use VLLM for supported models (Llama, Qwen, and other common models)
-        supported_models = ["llama", "qwen", "meta-llama", "mistral", "mixtral"]
+        # Use VLLM for supported models (Llama, Qwen, PMC-LLaMA, and other common models)
+        supported_models = ["llama", "qwen", "meta-llama", "mistral", "mixtral", "pmc"]
         if task == "text-generation" and model and any(name in model.lower() for name in supported_models):
             print(f"DEBUG: Using VLLM for model: {model}")
             return VLLMWrapper(model, **kwargs)

@@ -83,45 +83,42 @@ class MedRAG:
                 self.context_length = 28672
             self.tokenizer = tiktoken.get_encoding("cl100k_base")
         else:
-            self.max_length = 2048
-            self.context_length = 1024
-            self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
+            print(f"Initializing HuggingFace model: {self.llm_name}...")
             if "mixtral" in llm_name.lower():
+                self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
                 template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'mistral-instruct.jinja')
                 self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
                 self.max_length = 32768
                 self.context_length = 30000
             elif "llama-2" in llm_name.lower():
+                self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
                 self.max_length = 4096
                 self.context_length = 3072
             elif "llama-3" in llm_name.lower():
+                self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
                 self.max_length = 8192
                 self.context_length = 7168
                 if ".1" in llm_name or ".2" in llm_name:
                     self.max_length = 131072
                     self.context_length = 128000
-            elif "meditron-70b" in llm_name.lower():
-                template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'meditron.jinja')
-                self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
-                self.max_length = 4096
-                self.context_length = 3072
-                self.templates["cot_prompt"] = meditron_cot
-                self.templates["medrag_prompt"] = meditron_medrag
-            elif "pmc_llama" in llm_name.lower():
-                template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'pmc_llama.jinja')
-                self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
+            elif "pmc" in llm_name.lower():
+                self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
+                #template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'pmc_llama.jinja')
+                #self.tokenizer.chat_template = open(template_path).read().replace('    ', '').replace('\n', '')
                 self.max_length = 2048
                 self.context_length = 1024
+                # print(f"DEBUG: Set PMC-LLaMA max_length={self.max_length}, context_length={self.context_length}")
+                # print(f"DEBUG: PMC-LLaMA template loaded from: {template_path}")
             elif "qwen" in llm_name.lower():
                 # Qwen3-8B supports much longer context than the default
                 # Based on model documentation, Qwen3-8B supports 8192+ tokens
                 self.max_length = 8192
                 self.context_length = 7168
-                print(f"DEBUG: Set Qwen max_length={self.max_length}, context_length={self.context_length}")
+                # print(f"DEBUG: Set Qwen max_length={self.max_length}, context_length={self.context_length}")
             else:
-                # Default fallback for unknown models
                 self.max_length = 2048
                 self.context_length = 1024
+
             self.model = transformers.pipeline(
                 "text-generation",
                 model=self.llm_name,

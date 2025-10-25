@@ -70,7 +70,8 @@ def run_benchmark(
     retriever_name="MedCPT",
     corpus_name="MedCorp",
     results_dir="./prediction",
-    resume=True
+    resume=True,
+    max_questions=None
 ):
     """
     Run benchmark on specified datasets
@@ -84,6 +85,7 @@ def run_benchmark(
         corpus_name: Corpus to use (MedCorp, Textbooks, PubMed, etc.)
         results_dir: Directory to save results
         resume: Skip already processed questions
+        max_questions: Maximum number of questions to process (None for all)
     """
     
     # Setup VLLM
@@ -145,11 +147,16 @@ def run_benchmark(
         os.makedirs(save_dir, exist_ok=True)
         print(f"Saving to: {save_dir}")
         
+        # Determine how many questions to process
+        total_questions = len(dataset) if max_questions is None else min(max_questions, len(dataset))
+        if max_questions:
+            print(f"Processing first {total_questions} questions (max_questions={max_questions})")
+        
         # Process questions
         processed = 0
         skipped = 0
         
-        for idx in tqdm(range(len(dataset)), desc=f"Processing {dataset_name}"):
+        for idx in tqdm(range(total_questions), desc=f"Processing {dataset_name}"):
             question_data = dataset[idx]
             question_id = dataset.index[idx]
             
@@ -260,6 +267,13 @@ def main():
         help='Reprocess all questions (default: skip already processed)'
     )
     
+    parser.add_argument(
+        '--max_questions',
+        type=int,
+        default=None,
+        help='Maximum number of questions to process (default: all questions)'
+    )
+    
     args = parser.parse_args()
     
     # Run benchmark
@@ -271,7 +285,8 @@ def main():
         retriever_name=args.retriever_name,
         corpus_name=args.corpus_name,
         results_dir=args.results_dir,
-        resume=not args.no_resume
+        resume=not args.no_resume,
+        max_questions=args.max_questions
     )
     
     print("\n" + "="*80)
