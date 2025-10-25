@@ -30,8 +30,8 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
 # Add specific paths for imports
-medrag_path = "/data/wang/junh/githubs/mirage_medrag/MedRAG"
-mirage_src_path = "/data/wang/junh/githubs/mirage_medrag/MIRAGE/src"
+medrag_path = "MedRAG"
+mirage_src_path = "MIRAGE/src"
 
 sys.path.insert(0, medrag_path)
 sys.path.insert(0, mirage_src_path)
@@ -104,7 +104,7 @@ def run_benchmark(
         rag=(mode == 'rag'),
         retriever_name=retriever_name if mode == 'rag' else None,
         corpus_name=corpus_name if mode == 'rag' else None,
-        db_dir="/data/wang/junh/githubs/mirage_medrag/MedRAG/src/data/corpus",
+        db_dir="MedRAG/src/data/corpus",
         corpus_cache=True,
         HNSW=True
     )
@@ -121,7 +121,7 @@ def run_benchmark(
         print(f"{'='*80}")
         
         # Load dataset
-        dataset = QADataset(dataset_name, dir="/data/wang/junh/githubs/mirage_medrag/MIRAGE")
+        dataset = QADataset(dataset_name, dir="MIRAGE")
         
         # Determine split
         split = "dev" if dataset_name == "medmcqa" else "test"

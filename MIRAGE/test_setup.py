@@ -18,8 +18,8 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
 # Add paths
-sys.path.append("/data/wang/junh/githubs/mirage_medrag/MedRAG")
-sys.path.append("/data/wang/junh/githubs/mirage_medrag/MIRAGE/src")
+sys.path.append("MedRAG")
+sys.path.append("MIRAGE/src")
 
 from MedRAG.run_medrag_vllm import patch_medrag_for_vllm, vllm_medrag_answer
 from MedRAG.src.medrag import MedRAG
@@ -49,7 +49,7 @@ def test_single_question():
             rag=True,
             retriever_name="MedCPT",  # Use MedCPT instead of RRF-4 to avoid Java requirement
             corpus_name="Textbooks",  # Use smaller corpus for faster test
-            db_dir="/data/wang/junh/githubs/mirage_medrag/MedRAG/src/data/corpus",
+            db_dir="MedRAG/src/data/corpus",
             corpus_cache=True,
             HNSW=True
         )
@@ -63,7 +63,7 @@ def test_single_question():
     # 3. Load test dataset
     print("\n[3/5] Loading MMLU dataset...")
     try:
-        dataset = QADataset("mmlu", dir="/data/wang/junh/githubs/mirage_medrag/MIRAGE")
+        dataset = QADataset("mmlu", dir="MIRAGE")
         print(f"✓ Loaded {len(dataset)} questions")
     except Exception as e:
         print(f"✗ Dataset loading failed: {e}")

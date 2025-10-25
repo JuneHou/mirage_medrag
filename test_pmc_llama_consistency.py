@@ -18,7 +18,7 @@ import json
 import traceback
 
 # Add project paths
-medrag_path = "/data/wang/junh/githubs/mirage_medrag/MedRAG"
+medrag_path = "MedRAG"
 sys.path.insert(0, medrag_path)
 
 def test_pmc_llama_detection():
@@ -76,7 +76,7 @@ def test_pmc_llama_config():
     
     try:
         # Add MedRAG src to path
-        src_path = "/data/wang/junh/githubs/mirage_medrag/MedRAG/src"
+        src_path = "MedRAG/src"
         if src_path not in sys.path:
             sys.path.insert(0, src_path)
             
@@ -174,7 +174,7 @@ def test_template_loading():
     print("=" * 60)
     
     try:
-        template_path = "/data/wang/junh/githubs/mirage_medrag/MedRAG/templates/pmc_llama.jinja"
+        template_path = "MedRAG/templates/pmc_llama.jinja"
         
         print(f"Checking template file: {template_path}")
         
@@ -200,7 +200,7 @@ def test_template_loading():
             print(f"❌ Template file does not exist: {template_path}")
             
             # List available templates
-            template_dir = "/data/wang/junh/githubs/mirage_medrag/MedRAG/templates/"
+            template_dir = "MedRAG/templates/"
             if os.path.exists(template_dir):
                 templates = os.listdir(template_dir)
                 print(f"   Available templates: {templates}")

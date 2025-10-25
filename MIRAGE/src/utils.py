@@ -6,7 +6,7 @@ class QADataset:
 
     def __init__(self, data, dir="."):
         self.data = data.lower().split("_")[0]
-        benchmark = json.load(open(os.path.join(dir, "/data/wang/junh/githubs/mirage_medrag/MIRAGE/benchmark.json")))
+        benchmark = json.load(open(os.path.join(dir, "benchmark.json")))
         if self.data not in benchmark:
             raise KeyError("{:s} not supported".format(data))
         self.dataset = benchmark[self.data]
