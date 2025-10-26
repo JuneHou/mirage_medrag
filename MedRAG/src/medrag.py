@@ -116,10 +116,10 @@ class MedRAG:
                 print(f"DEBUG: PMC-LLaMA template loaded from: {template_path}")
                 print(f"DEBUG: PMC-LLaMA tokenizer.model_max_length set to: {self.tokenizer.model_max_length}")
             elif "qwen" in llm_name.lower():
-                # Qwen3-8B supports much longer context than the default
-                # Based on model documentation, Qwen3-8B supports 8192+ tokens
+                self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
                 self.max_length = 8192
                 self.context_length = 7168
+                self.tokenizer.model_max_length = self.max_length
                 # print(f"DEBUG: Set Qwen max_length={self.max_length}, context_length={self.context_length}")
             else:
                 self.max_length = 2048

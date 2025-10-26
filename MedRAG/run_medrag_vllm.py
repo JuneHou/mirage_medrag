@@ -8,7 +8,7 @@ import os
 import sys
 
 # Set GPU device to cuda:4
-os.environ['CUDA_VISIBLE_DEVICES'] = '4,5'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 # Get the absolute path to MedRAG directory
 medrag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -52,14 +52,18 @@ class VLLMWrapper:
             max_model_length = 2048  # Match what we set in medrag.py
             if "pmc" in model_name.lower():
                 max_model_length = 2048  # PMC-LLaMA specific
+            elif "qwen" in model_name.lower():
+                max_model_length = 8192  # Qwen3-8B supports 8192+ tokens
             elif "llama-3" in model_name.lower():
                 max_model_length = 8192
             elif "llama-2" in model_name.lower():
                 max_model_length = 4096
+            
+            print(f"DEBUG: Model: {model_name}, Setting max_model_length={max_model_length}")
                 
             self.llm = LLM(
                 model=model_name,
-                tensor_parallel_size=2,  # Adjust based on your GPU count
+                tensor_parallel_size=1,  # Adjust based on your GPU count
                 trust_remote_code=True,
                 gpu_memory_utilization=gpu_utilization,
                 max_model_len=max_model_length,  # Explicitly set this to override config
@@ -135,28 +139,21 @@ def log_pmc_response(raw_response, model_name, question_id=None, log_dir=None):
     """
     Log PMC-LLaMA raw response to file for debugging
     """
-    if model_name and "pmc" in model_name.lower() and question_id and log_dir:
-        try:
-            import os
-            # Create log file path with same name as question_id
-            log_file = os.path.join(log_dir, f"{question_id}_raw_response.txt")
-            
-            # Ensure log directory exists
-            os.makedirs(log_dir, exist_ok=True)
-            
-            with open(log_file, 'w', encoding='utf-8') as f:
-                f.write(f"Model: {model_name}\n")
-                f.write(f"Question ID: {question_id}\n")
-                f.write(f"Response Length: {len(raw_response)}\n")
-                f.write("="*50 + "\n")
-                f.write("RAW RESPONSE:\n")
-                f.write("="*50 + "\n")
-                f.write(raw_response)
-                f.write("\n" + "="*50 + "\n")
-            
-            print(f"DEBUG: PMC-LLaMA raw response logged to: {log_file}")
-        except Exception as e:
-            print(f"DEBUG: Failed to log PMC-LLaMA response: {e}")
+    # Create log file path with same name as question_id
+    log_file = os.path.join(log_dir, f"{question_id}_raw_response.txt")
+    
+    # Ensure log directory exists
+    os.makedirs(log_dir, exist_ok=True)
+    
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write(f"Model: {model_name}\n")
+        f.write(f"Question ID: {question_id}\n")
+        f.write(f"Response Length: {len(raw_response)}\n")
+        f.write("="*50 + "\n")
+        f.write(raw_response)
+        f.write("\n" + "="*50 + "\n")
+    
+    print(f"DEBUG: PMC-LLaMA raw response logged to: {log_file}")
 
 def parse_response_standard(raw_response, model_name=None, question_id=None, log_dir=None):
     """
@@ -166,18 +163,19 @@ def parse_response_standard(raw_response, model_name=None, question_id=None, log
     import json
     import re
     
-    # Log PMC-LLaMA raw responses for debugging
-    log_pmc_response(raw_response, model_name, question_id, log_dir)
-    
     # DEBUG: Print the response we're trying to parse
     print(f"DEBUG: Parsing response of length {len(raw_response)} for model: {model_name}")
     print(f"DEBUG: Response content: {raw_response[:500]}...")
     
     # Remove any extra whitespace and newlines
     response = raw_response.strip()
+        
+    # Log PMC-LLaMA raw responses for debugging
+    if "pmc" in model_name.lower():
+        log_pmc_response(response, model_name, question_id, log_dir)
     
     # PMC-LLaMA specific: Handle array format like [{"text": "...", "answer_choice": "B"}] or [{"text": "...", "answer": "B"}]
-    if model_name and "pmc" in model_name.lower():
+    if "pmc" in model_name.lower():
         # First try: Look for array format with answer_choice/answer field
         array_match = re.search(r'\[\s*\{[^}]*"(?:answer_choice|answer)"\s*:\s*"([ABCD])"[^}]*\}\s*\]', response, re.DOTALL)
         if array_match:
@@ -281,7 +279,7 @@ def parse_response_standard(raw_response, model_name=None, question_id=None, log
     
     # Ultimate fallback
     return {
-        "answer_choice": "A", 
+        "answer_choice": "E", 
         "step_by_step_thinking": "Error: Could not parse model response"
     }
 
@@ -292,6 +290,12 @@ def vllm_medrag_answer(medrag_instance, question, options=None, k=32, question_i
     """
     # Get the raw answer from MedRAG
     try:
+        # Pass save parameters based on follow_up mode
+        if log_dir and medrag_instance.follow_up:
+            kwargs['save_path'] = os.path.join(log_dir, f"{question_id}_conversation.json")
+        else:
+            kwargs['save_dir'] = log_dir
+        
         answer, snippets, scores = medrag_instance.answer(question=question, options=options, k=k, **kwargs)
         
         # Parse the VLLM response if it's a string
@@ -343,6 +347,7 @@ def patch_medrag_for_vllm():
         supported_models = ["llama", "qwen", "meta-llama", "mistral", "mixtral", "pmc"]
         if task == "text-generation" and model and any(name in model.lower() for name in supported_models):
             print(f"DEBUG: Using VLLM for model: {model}")
+            print(f"DEBUG: Model name check - 'qwen' in '{model.lower()}': {'qwen' in model.lower()}")
             return VLLMWrapper(model, **kwargs)
         else:
             print(f"DEBUG: Using transformers pipeline for model: {model}")

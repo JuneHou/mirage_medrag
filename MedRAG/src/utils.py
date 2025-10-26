@@ -338,16 +338,29 @@ class DocExtracter:
                     os.system("python src/data/statpearls.py")
         if self.cache:
             if os.path.exists(os.path.join(self.db_dir, "_".join([corpus_name, "id2text.json"]))):
+                print(f"Loading existing {corpus_name} id2text.json...")
                 self.dict = json.load(open(os.path.join(self.db_dir, "_".join([corpus_name, "id2text.json"]))))
+                print(f"Loaded {len(self.dict)} documents from cache.")
             else:
+                print(f"Generating {corpus_name} id2text.json...")
                 self.dict = {}
+                total_docs = 0
+                skipped_lfs = 0
+                skipped_empty = 0
                 for corpus in corpus_names[corpus_name]:
+                    print(f"Processing corpus: {corpus}")
+                    corpus_docs = 0
                     for fname in tqdm.tqdm(sorted(os.listdir(os.path.join(self.db_dir, corpus, "chunk")))):
                         fpath = os.path.join(self.db_dir, corpus, "chunk", fname)
                         try:
                             content = open(fpath).read().strip()
-                            if content == "" or content.startswith("version https://git-lfs"):
-                                continue  # Skip empty files and LFS pointer files
+                            if content == "":
+                                skipped_empty += 1
+                                continue  # Skip empty files
+                            if content.startswith("version https://git-lfs"):
+                                skipped_lfs += 1
+                                print(f"Warning: Skipping LFS pointer file: {fname}")
+                                continue  # Skip LFS pointer files
                             for i, line in enumerate(content.split('\n')):
                                 if not line.strip():
                                     continue
@@ -356,26 +369,47 @@ class DocExtracter:
                                     _ = item.pop("contents", None)
                                     # assert item["id"] not in self.dict
                                     self.dict[item["id"]] = item
+                                    corpus_docs += 1
+                                    total_docs += 1
                                 except json.JSONDecodeError as e:
                                     print(f"Warning: Skipping invalid JSON in {fname} line {i+1}: {e}")
                                     continue
                         except Exception as e:
                             print(f"Warning: Skipping file {fname}: {e}")
                             continue
+                    print(f"  - {corpus}: {corpus_docs} documents processed")
+                print(f"Total documents processed: {total_docs}")
+                print(f"Skipped LFS pointer files: {skipped_lfs}")
+                print(f"Skipped empty files: {skipped_empty}")
+                print(f"Corpus mapping {'SUCCESSFUL' if total_docs > 0 else 'FAILED'}")
                 with open(os.path.join(self.db_dir, "_".join([corpus_name, "id2text.json"])), 'w') as f:
                     json.dump(self.dict, f)
+                print(f"Saved {corpus_name} id2text.json with {len(self.dict)} documents.")
         else:
             if os.path.exists(os.path.join(self.db_dir, "_".join([corpus_name, "id2path.json"]))):
+                print(f"Loading existing {corpus_name} id2path.json...")
                 self.dict = json.load(open(os.path.join(self.db_dir, "_".join([corpus_name, "id2path.json"]))))
+                print(f"Loaded {len(self.dict)} document paths from cache.")
             else:
+                print(f"Generating {corpus_name} id2path.json...")
                 self.dict = {}
+                total_docs = 0
+                skipped_lfs = 0
+                skipped_empty = 0
                 for corpus in corpus_names[corpus_name]:
+                    print(f"Processing corpus: {corpus}")
+                    corpus_docs = 0
                     for fname in tqdm.tqdm(sorted(os.listdir(os.path.join(self.db_dir, corpus, "chunk")))):
                         fpath = os.path.join(self.db_dir, corpus, "chunk", fname)
                         try:
                             content = open(fpath).read().strip()
-                            if content == "" or content.startswith("version https://git-lfs"):
-                                continue  # Skip empty files and LFS pointer files
+                            if content == "":
+                                skipped_empty += 1
+                                continue  # Skip empty files
+                            if content.startswith("version https://git-lfs"):
+                                skipped_lfs += 1
+                                print(f"Warning: Skipping LFS pointer file: {fname}")
+                                continue  # Skip LFS pointer files
                             for i, line in enumerate(content.split('\n')):
                                 if not line.strip():
                                     continue
@@ -383,14 +417,22 @@ class DocExtracter:
                                     item = json.loads(line)
                                     # assert item["id"] not in self.dict
                                     self.dict[item["id"]] = {"fpath": os.path.join(corpus, "chunk", fname), "index": i}
+                                    corpus_docs += 1
+                                    total_docs += 1
                                 except json.JSONDecodeError as e:
                                     print(f"Warning: Skipping invalid JSON in {fname} line {i+1}: {e}")
                                     continue
                         except Exception as e:
                             print(f"Warning: Skipping file {fname}: {e}")
                             continue
+                    print(f"  - {corpus}: {corpus_docs} documents processed")
+                print(f"Total documents processed: {total_docs}")
+                print(f"Skipped LFS pointer files: {skipped_lfs}")
+                print(f"Skipped empty files: {skipped_empty}")
+                print(f"Corpus mapping {'SUCCESSFUL' if total_docs > 0 else 'FAILED'}")
                 with open(os.path.join(self.db_dir, "_".join([corpus_name, "id2path.json"])), 'w') as f:
                     json.dump(self.dict, f, indent=4)
+                print(f"Saved {corpus_name} id2path.json with {len(self.dict)} document paths.")
         print("Initialization finished!")
     
     def extract(self, ids):

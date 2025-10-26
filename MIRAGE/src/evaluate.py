@@ -25,7 +25,7 @@ def evaluate(dataset, save_dir, split="test", locate_fun=locate_answer):
         for it in json.load(open(fpath))[:1]:
             if isinstance(it, dict):
                 # New format: JSON object
-                answer_choice = it.get("answer_choice", "A")
+                answer_choice = it.get("answer_choice")
                 answers.append(locate_fun(answer_choice))
             else:
                 # Old format: JSON string

@@ -10,7 +10,7 @@ from huggingface_hub import list_repo_files, hf_hub_download
 from tqdm import tqdm
 import time
 
-def download_full_corpus(repo_name, corpus_dir, cache_dir="/data/wang/junh/hf_cache"):
+def download_full_corpus(repo_name, corpus_dir, cache_dir="./MedRAG/src/data/hf_cache"):
     """Download all files from a HuggingFace corpus repository"""
     
     print(f"\n=== Downloading {repo_name} corpus ===")
