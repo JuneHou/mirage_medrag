@@ -121,7 +121,13 @@ class MedRAG:
                 self.context_length = 7168
                 self.tokenizer.model_max_length = self.max_length
                 # print(f"DEBUG: Set Qwen max_length={self.max_length}, context_length={self.context_length}")
+            elif "gemma" in llm_name.lower():
+                self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
+                self.max_length = 8192
+                self.context_length = 7168
+                self.tokenizer.model_max_length = self.max_length
             else:
+                self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
                 self.max_length = 2048
                 self.context_length = 1024
 
@@ -195,6 +201,7 @@ class MedRAG:
                     eos_token_id=self.tokenizer.eos_token_id,
                     pad_token_id=self.tokenizer.eos_token_id,
                     max_length=self.max_length,
+                    max_new_tokens=None,  # CRITICAL: Explicitly disable pipeline's default of 256
                     truncation=True,
                     stopping_criteria=stopping_criteria,
                     **filtered_kwargs

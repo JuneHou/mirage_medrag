@@ -8,7 +8,7 @@ import os
 import sys
 
 # Set GPU device to cuda:4
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3,5,6'
 
 # Get the absolute path to MedRAG directory
 medrag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -63,7 +63,7 @@ class VLLMWrapper:
                 
             self.llm = LLM(
                 model=model_name,
-                tensor_parallel_size=1,  # Adjust based on your GPU count
+                tensor_parallel_size=3,  # Adjust based on your GPU count
                 trust_remote_code=True,
                 gpu_memory_utilization=gpu_utilization,
                 max_model_len=max_model_length,  # Explicitly set this to override config
@@ -128,12 +128,6 @@ class VLLMWrapper:
         # Note: MedRAG expects to extract the generated part by removing the prompt
         return [{"generated_text": prompt + generated_text}]
 
-def parse_response_vllm(raw_response, model_name=None, question_id=None, log_dir=None):
-    """
-    Legacy function - now redirects to parse_response_standard
-    for consistency with original MedRAG approach
-    """
-    return parse_response_standard(raw_response, model_name=model_name, question_id=question_id, log_dir=log_dir)
 
 def log_pmc_response(raw_response, model_name, question_id=None, log_dir=None):
     """
@@ -171,7 +165,7 @@ def parse_response_standard(raw_response, model_name=None, question_id=None, log
     response = raw_response.strip()
         
     # Log PMC-LLaMA raw responses for debugging
-    if "pmc" in model_name.lower():
+    if "pmc" or "gemma" in model_name.lower():
         log_pmc_response(response, model_name, question_id, log_dir)
     
     # PMC-LLaMA specific: Handle array format like [{"text": "...", "answer_choice": "B"}] or [{"text": "...", "answer": "B"}]
