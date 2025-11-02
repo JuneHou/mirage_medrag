@@ -254,7 +254,7 @@ def main():
         '--corpus_name',
         type=str,
         default='MedCorp',
-        choices=['PubMed', 'Textbooks', 'StatPearls', 'Wikipedia', 'MedText', 'MedCorp'],
+        choices=['PubMed', 'Textbooks', 'StatPearls', 'Wikipedia', 'MedText', 'MedCorp', 'UMLS', 'MedCorp2'],
         help='Corpus to use (default: MedCorp)'
     )
     

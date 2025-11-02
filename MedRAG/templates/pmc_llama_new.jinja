@@ -1,0 +1,44 @@
+{% if messages[0]['role'] == 'system' %}
+    {% set loop_messages = messages[1:] %}
+    {% set system_message = messages[0]['content'].strip() + '\n' %}
+{% else %}
+    {% set loop_messages = messages %}
+    {% set system_message = '' %}
+{% endif %}
+{% set question_already_shown = false %}
+{% for message in loop_messages %}
+    {% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}
+        {{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}
+    {% endif %}
+    {% if loop.index0 == 0 %}
+        {% set content = system_message + message['content'] %}
+    {% else %}
+        {% set content = message['content'] %}
+        {% if message['role'] == 'user' %}
+            {# Remove repeated question blocks to avoid redundancy #}
+            {% set lines = content.split('\n') %}
+            {% set filtered_lines = [] %}
+            {% set skip_until_empty = false %}
+            {% for line in lines %}
+                {% if line.strip().startswith('Here is the question:') and question_already_shown %}
+                    {% set skip_until_empty = true %}
+                {% elif skip_until_empty and line.strip() == '' %}
+                    {% set skip_until_empty = false %}
+                {% elif skip_until_empty and (line.strip().startswith('A.') or line.strip().startswith('B.') or line.strip().startswith('C.') or line.strip().startswith('D.')) %}
+                    {# Still skipping option lines #}
+                {% elif not skip_until_empty %}
+                    {% set _ = filtered_lines.append(line) %}
+                {% endif %}
+            {% endfor %}
+            {% set content = '\n'.join(filtered_lines) %}
+        {% endif %}
+    {% endif %}
+    {% if message['role'] == 'user' %}
+        {{ content.strip() }}
+        {% if 'Here is the question:' in content %}
+            {% set question_already_shown = true %}
+        {% endif %}
+    {% elif message['role'] == 'assistant' %}
+        {{ ' '  + content.strip() + ' ' + eos_token }}
+    {% endif %}
+{% endfor %}

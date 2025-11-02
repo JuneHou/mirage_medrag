@@ -7,8 +7,10 @@ This script provides a drop-in replacement for the transformers pipeline using v
 import os
 import sys
 
-# Set GPU device to cuda:4
-os.environ['CUDA_VISIBLE_DEVICES'] = '3,5,6'
+# Set GPU devices to cuda:3 and cuda:5 (2 GPUs for tensor parallelism)
+# Note: tensor_parallel_size must divide evenly into number of attention heads (32)
+# Qwen3-8B has 32 attention heads, so valid sizes are: 1, 2, 4, 8, 16, 32
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 # Get the absolute path to MedRAG directory
 medrag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -45,7 +47,8 @@ class VLLMWrapper:
             vllm_kwargs = {k: v for k, v in kwargs.items() if k in vllm_supported_kwargs}
             
             # Initialize VLLM with optimized settings
-            gpu_utilization = 0.7
+            # Reduce GPU utilization to prevent OOM - leave headroom for KV cache growth
+            gpu_utilization = 0.7  # Reduced from 0.7 to prevent memory exhaustion
             
             # Set explicit max_model_len to override any 512 token limits
             # This is critical for PMC-LLaMA models that might have incorrect config
@@ -63,7 +66,7 @@ class VLLMWrapper:
                 
             self.llm = LLM(
                 model=model_name,
-                tensor_parallel_size=3,  # Adjust based on your GPU count
+                tensor_parallel_size=1,  # Using 2 GPUs (must divide 32 attention heads evenly)
                 trust_remote_code=True,
                 gpu_memory_utilization=gpu_utilization,
                 max_model_len=max_model_length,  # Explicitly set this to override config
@@ -120,13 +123,20 @@ class VLLMWrapper:
         generated_text = outputs[0].outputs[0].text
         print(f"Generated text: {generated_text[:300]}...")  # Print first 300 chars
         
-        # DEBUG: Print response details
-        print(f"DEBUG: VLLM generated response length: {len(generated_text)}")
+        # # DEBUG: Print response details
+        # print(f"DEBUG: VLLM generated response length: {len(generated_text)}")
         print(f"DEBUG: VLLM raw response: {generated_text[:300]}...")
+        
+        # Clean up to prevent memory leaks
+        del outputs
         
         # Return in the expected format (similar to transformers.pipeline)
         # Note: MedRAG expects to extract the generated part by removing the prompt
-        return [{"generated_text": prompt + generated_text}]
+        # For debate code compatibility, also support direct string return
+        if kwargs.get('return_format') == 'string':
+            return generated_text  # Return plain string for debate code
+        else:
+            return [{"generated_text": prompt + generated_text}]  # Default format for MedRAG
 
 
 def log_pmc_response(raw_response, model_name, question_id=None, log_dir=None):
@@ -282,6 +292,9 @@ def vllm_medrag_answer(medrag_instance, question, options=None, k=32, question_i
     Wrapper function to handle VLLM-specific response parsing for MedRAG
     Following original MedRAG approach - all models use the same parsing logic
     """
+    import gc
+    import torch
+    
     # Get the raw answer from MedRAG
     try:
         # Pass save parameters based on follow_up mode
@@ -291,6 +304,19 @@ def vllm_medrag_answer(medrag_instance, question, options=None, k=32, question_i
             kwargs['save_dir'] = log_dir
         
         answer, snippets, scores = medrag_instance.answer(question=question, options=options, k=k, **kwargs)
+        
+        # Periodic memory cleanup every 50 iterations to prevent gradual memory buildup
+        if question_id and isinstance(question_id, str):
+            try:
+                # Extract iteration number from question_id (e.g., "test_0938" -> 938)
+                iter_num = int(question_id.split('_')[-1])
+                if iter_num % 50 == 0:
+                    print(f"DEBUG: Performing memory cleanup at iteration {iter_num}")
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+            except (ValueError, IndexError):
+                pass  # Skip if question_id format is unexpected
         
         # Parse the VLLM response if it's a string
         if isinstance(answer, str):
@@ -329,7 +355,7 @@ def vllm_medrag_answer(medrag_instance, question, options=None, k=32, question_i
     except Exception as e:
         print(f"Error in vllm_medrag_answer: {e}")
         # Return a fallback response
-        return {"answer_choice": "A", "error": str(e)}, [], []
+        return {"answer_choice": "E", "error": str(e)}, [], []
 
 def patch_medrag_for_vllm():
     """Monkey patch MedRAG to use VLLM for specific models"""

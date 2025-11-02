@@ -12,8 +12,10 @@ corpus_names = {
     "Textbooks": ["textbooks"],
     "StatPearls": ["statpearls"],
     "Wikipedia": ["wikipedia"],
+    "UMLS": ["umls"],
     "MedText": ["textbooks", "statpearls"],
     "MedCorp": ["pubmed", "textbooks", "statpearls", "wikipedia"],
+    "MedCorp2": ["pubmed", "textbooks", "statpearls", "wikipedia", "umls"],
 }
 
 retriever_names = {
