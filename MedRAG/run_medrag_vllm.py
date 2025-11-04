@@ -10,7 +10,7 @@ import sys
 # Set GPU devices to cuda:3 and cuda:5 (2 GPUs for tensor parallelism)
 # Note: tensor_parallel_size must divide evenly into number of attention heads (32)
 # Qwen3-8B has 32 attention heads, so valid sizes are: 1, 2, 4, 8, 16, 32
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '6,7'
 
 # Get the absolute path to MedRAG directory
 medrag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -66,7 +66,7 @@ class VLLMWrapper:
                 
             self.llm = LLM(
                 model=model_name,
-                tensor_parallel_size=1,  # Using 2 GPUs (must divide 32 attention heads evenly)
+                tensor_parallel_size=2,  # Using 2 GPUs (must divide 32 attention heads evenly)
                 trust_remote_code=True,
                 gpu_memory_utilization=gpu_utilization,
                 max_model_len=max_model_length,  # Explicitly set this to override config
@@ -86,13 +86,13 @@ class VLLMWrapper:
     def __call__(self, prompt, **kwargs):
         """Make the wrapper callable like transformers.pipeline"""
         # DEBUG: Track parameter flow
-        print(f"DEBUG: VLLMWrapper received kwargs: {kwargs}")
+        # print(f"DEBUG: VLLMWrapper received kwargs: {kwargs}")
         
         # Remove parameters that could conflict with VLLM/transformers
         # These are parameters that the original pipeline might set but we handle differently
         conflicting_params = {'max_new_tokens', 'truncation', 'stopping_criteria', 'return_full_text'}
         clean_kwargs = {k: v for k, v in kwargs.items() if k not in conflicting_params}
-        print(f"DEBUG: Removed conflicting params, clean_kwargs: {clean_kwargs}")
+        # print(f"DEBUG: Removed conflicting params, clean_kwargs: {clean_kwargs}")
         
         # Extract relevant parameters and set defaults
         do_sample = clean_kwargs.get('do_sample', False)
@@ -100,7 +100,7 @@ class VLLMWrapper:
         # Original MedRAG uses max_length for total sequence length
         # For VLLM, we need to calculate max_new_tokens from max_length
         max_length = clean_kwargs.get('max_length', 2048)
-        print(f"DEBUG: Using max_length={max_length}")
+        # print(f"DEBUG: Using max_length={max_length}")
         
         # Calculate how many tokens are already in the prompt
         prompt_tokens = len(self.tokenizer.encode(prompt))
@@ -116,7 +116,7 @@ class VLLMWrapper:
             max_tokens=max_new_tokens,  # This is the key - no conflict now
             stop=clean_kwargs.get('stop_sequences', None)
         )
-        print(f"DEBUG: SamplingParams created with max_tokens={max_new_tokens}")
+        # print(f"DEBUG: SamplingParams created with max_tokens={max_new_tokens}")
         
         # Generate response
         outputs = self.llm.generate([prompt], sampling_params)
@@ -125,7 +125,7 @@ class VLLMWrapper:
         
         # # DEBUG: Print response details
         # print(f"DEBUG: VLLM generated response length: {len(generated_text)}")
-        print(f"DEBUG: VLLM raw response: {generated_text[:300]}...")
+        # print(f"DEBUG: VLLM raw response: {generated_text[:300]}...")
         
         # Clean up to prevent memory leaks
         del outputs
@@ -168,8 +168,8 @@ def parse_response_standard(raw_response, model_name=None, question_id=None, log
     import re
     
     # DEBUG: Print the response we're trying to parse
-    print(f"DEBUG: Parsing response of length {len(raw_response)} for model: {model_name}")
-    print(f"DEBUG: Response content: {raw_response[:500]}...")
+    # print(f"DEBUG: Parsing response of length {len(raw_response)} for model: {model_name}")
+    # print(f"DEBUG: Response content: {raw_response[:500]}...")
     
     # Remove any extra whitespace and newlines
     response = raw_response.strip()
@@ -366,11 +366,11 @@ def patch_medrag_for_vllm():
         # Use VLLM for supported models (Llama, Qwen, PMC-LLaMA, and other common models)
         supported_models = ["llama", "qwen", "meta-llama", "mistral", "mixtral", "pmc"]
         if task == "text-generation" and model and any(name in model.lower() for name in supported_models):
-            print(f"DEBUG: Using VLLM for model: {model}")
-            print(f"DEBUG: Model name check - 'qwen' in '{model.lower()}': {'qwen' in model.lower()}")
+            # print(f"DEBUG: Using VLLM for model: {model}")
+            # print(f"DEBUG: Model name check - 'qwen' in '{model.lower()}': {'qwen' in model.lower()}")
             return VLLMWrapper(model, **kwargs)
         else:
-            print(f"DEBUG: Using transformers pipeline for model: {model}")
+            # print(f"DEBUG: Using transformers pipeline for model: {model}")
             return original_pipeline(task, model=model, **kwargs)
     
     transformers.pipeline = vllm_pipeline

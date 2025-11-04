@@ -89,7 +89,7 @@ if __name__ == "__main__":
             
             # Check if summary needs chunking
             # Following wikipedia.py and textbooks.py: chunk if text is long
-            if len(summary) > 1000:
+            if len(summary) > 2000:
                 # Split long summaries into chunks with overlap
                 chunks = text_splitter.split_text(summary)
                 chunked_count += 1

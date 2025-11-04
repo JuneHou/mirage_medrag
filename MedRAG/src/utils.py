@@ -441,7 +441,25 @@ class DocExtracter:
         if self.cache:
             output = []
             for i in ids:
-                item = self.dict[i] if type(i) == str else self.dict[i["id"]]
+                id_key = i if type(i) == str else i["id"]
+                
+                # Handle UMLS-specific ID format mismatch when using UMLS corpus alone
+                if id_key not in self.dict and id_key.startswith('umls_run') and '_' in id_key:
+                    source, index_str = id_key.rsplit('_', 1)
+                    try:
+                        index = int(index_str)
+                        fpath = os.path.join(self.db_dir, 'umls', 'chunk', source + '.jsonl')
+                        with open(fpath, 'r') as f:
+                            lines = f.read().strip().split('\n')
+                            if index < len(lines):
+                                doc = json.loads(lines[index])
+                                doc.pop("contents", None)
+                                output.append(doc)
+                                continue
+                    except (ValueError, IndexError, json.JSONDecodeError, FileNotFoundError):
+                        pass
+                
+                item = self.dict[id_key]
                 output.append(item)
         else:
             output = []
