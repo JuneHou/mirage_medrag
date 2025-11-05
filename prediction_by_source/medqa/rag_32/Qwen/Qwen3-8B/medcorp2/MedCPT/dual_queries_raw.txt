@@ -1,0 +1,6 @@
+Raw dual query response:
+ MedCorp: Neck stiffness, medication overdose, neuroleptic malignant syndrome treatment UMLS: Neck stiffness, antipsychotic overdose, neuroleptic malignant syndrome, drug treatment
+
+Parsed queries:
+MedCorp: Neck stiffness, medication overdose, neuroleptic malignant syndrome treatment
+UMLS: Neck stiffness, antipsychotic overdose, neuroleptic malignant syndrome, drug treatment

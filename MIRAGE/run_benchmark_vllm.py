@@ -25,6 +25,15 @@ import json
 import argparse
 from tqdm import tqdm
 
+# Set GPU devices for separation - same as run_medrag_vllm.py
+# First GPU for retriever, second GPU for LLM
+# When CUDA_VISIBLE_DEVICES='6,7': cuda:0 maps to GPU 6, cuda:1 maps to GPU 7
+os.environ.setdefault('CUDA_VISIBLE_DEVICES', '4,5')
+
+# Device assignment
+RETRIEVER_DEVICE = "cuda:0"  # First visible GPU for embedding models  
+LLM_DEVICE = "cuda:1"        # Second visible GPU for VLLM LLM
+
 # Add the project root directory to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
@@ -92,8 +101,10 @@ def run_benchmark(
     print("Setting up VLLM...")
     patch_medrag_for_vllm()
     
-    # Initialize MedRAG
+    # Initialize MedRAG with GPU separation
     print(f"Initializing MedRAG with {llm_name}...")
+    print(f"  Retriever device: {RETRIEVER_DEVICE}")
+    print(f"  LLM device: {LLM_DEVICE} (handled by VLLM)")
     if mode == 'rag':
         print(f"  Retriever: {retriever_name}")
         print(f"  Corpus: {corpus_name}")
@@ -106,7 +117,8 @@ def run_benchmark(
         corpus_name=corpus_name if mode == 'rag' else None,
         db_dir="MedRAG/src/data/corpus",
         corpus_cache=True,
-        HNSW=True
+        HNSW=True,
+        retriever_device=RETRIEVER_DEVICE  # GPU separation for all corpus types
     )
     
     # Determine datasets to run
@@ -238,8 +250,8 @@ def main():
     parser.add_argument(
         '--llm_name',
         type=str,
-        default='meta-llama/Meta-Llama-3-8B-Instruct',
-        help='LLM model name (default:meta-llama/Meta-Llama-3-8B-Instruct )'
+        default='Qwen/Qwen3-8B',
+        help='LLM model name (default: Qwen/Qwen3-8B)'
     )
     
     parser.add_argument(

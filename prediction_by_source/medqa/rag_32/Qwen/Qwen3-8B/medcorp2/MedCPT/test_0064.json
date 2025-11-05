@@ -1,0 +1,6 @@
+[
+  {
+    "step_by_step_thinking": "The patient presents with symptoms of oral candidiasis, including white pseudomembranes and a metallic taste. The treatment for oral candidiasis typically involves antifungal agents. The UMLS documents explain that triazole derivatives (e.g., fluconazole, itraconazole) inhibit the fungal cytochrome P450 enzyme lanosterol 14\u03b1-demethylase, disrupting ergosterol synthesis and compromising fungal cell membrane integrity. This mechanism is directly linked to option C. Other mechanisms (e.g., beta-glucan synthase inhibition) are associated with different antifungal classes (e.g., echinocandins).",
+    "answer_choice": "C"
+  }
+]

@@ -42,16 +42,23 @@ else:
 
 class MedRAG:
 
-    def __init__(self, llm_name="OpenAI/gpt-3.5-turbo-16k", rag=True, follow_up=False, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus", cache_dir=None, corpus_cache=False, HNSW=False):
+    def __init__(self, llm_name="OpenAI/gpt-3.5-turbo-16k", rag=True, follow_up=False, retriever_name="MedCPT", corpus_name="Textbooks", db_dir="./corpus", cache_dir=None, corpus_cache=False, HNSW=False, retriever_device=None):
         self.llm_name = llm_name
         self.rag = rag
         self.retriever_name = retriever_name
         self.corpus_name = corpus_name
         self.db_dir = db_dir
         self.cache_dir = cache_dir
+        self.HNSW = HNSW  # Store HNSW setting for pre-warm initialization
+        self.corpus_cache = corpus_cache  # Store corpus_cache setting
+        self.retriever_device = retriever_device
         self.docExt = None
         if rag:
-            self.retrieval_system = RetrievalSystem(self.retriever_name, self.corpus_name, self.db_dir, cache=corpus_cache, HNSW=HNSW)
+            # For MedCorp2, we'll use pre-warmed source retrievers instead of a single MedCorp2 retriever
+            if corpus_name == "MedCorp2":
+                self.retrieval_system = None
+            else:
+                self.retrieval_system = RetrievalSystem(self.retriever_name, self.corpus_name, self.db_dir, cache=corpus_cache, HNSW=HNSW, device=self.retriever_device)
         else:
             self.retrieval_system = None
         self.templates = {"cot_system": general_cot_system, "cot_prompt": general_cot,
@@ -148,8 +155,89 @@ class MedRAG:
             self.templates["i_medrag_system"] = i_medrag_system
             self.templates["follow_up_ask"] = follow_up_instruction_ask
             self.templates["follow_up_answer"] = follow_up_instruction_answer
+        elif self.corpus_name == "MedCorp2":
+            print(f"DEBUG: Using optimized 2-source retrieval for MedCorp2 with {self.retriever_name}")
+            print("  - MedCorp: Combined general medical literature (GPU 1)")  
+            print("  - UMLS: Medical terminology and relationships (GPU 0)")
+            # Pre-warm initialize all source retrieval systems to avoid per-query initialization overhead
+            self._initialize_source_retrievers()
+            self.answer = self.medrag_answer_by_source
         else:
             self.answer = self.medrag_answer
+
+    def _initialize_source_retrievers(self):
+        """
+        Pre-warm initialization of 2 source retrieval systems for MedCorp2.
+        - Uses shared embedding model for GPU memory efficiency  
+        - 2 separate GPU-based FAISS indexes (MedCorp on GPU 0, UMLS on GPU 1)
+        - MedCorp: Combined general medical literature (pubmed + textbooks + statpearls + wikipedia)
+        - UMLS: Medical terminology and concept relationships
+        """
+        print("Pre-warming 2 source retrievers for MedCorp2 with GPU FAISS...")
+        
+        # Simplified 2-source architecture
+        self.sources = ["medcorp", "umls"]
+        self.corpus_name_mapping = {
+            "medcorp": "MedCorp",    # Combined general medical literature
+            "umls": "UMLS"           # Medical terminology and relationships
+        }
+        
+        # GPU allocation for FAISS indexes to avoid threading conflicts
+        self.gpu_allocation = {
+            "medcorp": 1,  # GPU 1 for general medical literature
+            "umls": 0      # GPU 0 for medical terminology
+        }
+        
+        # Initialize shared embedding model once (GPU optimization)
+        from utils import CustomizeSentenceTransformer, retriever_names
+        from sentence_transformers import SentenceTransformer
+        import torch
+        
+        # Get the actual model name from retriever_names mapping
+        actual_model_name = retriever_names[self.retriever_name][0]  # Take first model for shared embedding
+        print(f"  DEBUG: Mapped retriever '{self.retriever_name}' to model '{actual_model_name}'")
+        print(f"  Loading shared embedding model: {actual_model_name} on device {self.retriever_device}...")
+        
+        if "contriever" in actual_model_name.lower():
+            self.shared_embedding_function = SentenceTransformer(actual_model_name, device=self.retriever_device)
+        else:
+            self.shared_embedding_function = CustomizeSentenceTransformer(actual_model_name, device=self.retriever_device)
+        self.shared_embedding_function.eval()
+        print(f"  ✓ Shared embedding model {actual_model_name} loaded on {self.retriever_device}")
+        
+        # Initialize 2 separate retrieval systems with GPU-specific FAISS
+        self.source_retrievers = {}
+        for source in self.sources:
+            gpu_id = self.gpu_allocation[source]
+            print(f"  Initializing {source} retrieval system on GPU {gpu_id}...")
+            try:
+                # Create retrieval system with GPU-specific device setting
+                gpu_device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+                
+                self.source_retrievers[source] = RetrievalSystem(
+                    retriever_name=self.retriever_name,
+                    corpus_name=self.corpus_name_mapping[source],
+                    db_dir=self.db_dir,
+                    cache=self.corpus_cache,
+                    HNSW=self.HNSW,
+                    device=gpu_device  # Use GPU-specific device for FAISS
+                )
+                
+                # Replace individual embedding functions with shared one (GPU memory optimization)
+                for retriever_list in self.source_retrievers[source].retrievers:
+                    for retriever in retriever_list:
+                        if hasattr(retriever, 'embedding_function') and retriever.embedding_function is not None:
+                            retriever.embedding_function = self.shared_embedding_function
+                
+                print(f"  ✓ {source} retriever ready on GPU {gpu_id} (shared embedding model, separate GPU FAISS)")
+            except Exception as e:
+                print(f"  ✗ Failed to initialize {source} retriever: {e}")
+                continue
+        
+        print(f"Pre-warming complete. {len(self.source_retrievers)}/2 source retrievers ready.")
+        print("Architecture: 2 sources + 2 GPU FAISS indexes + 1 shared embedding model")
+        print(f"  - MedCorp (general literature) on GPU {self.gpu_allocation['medcorp']}")
+        print(f"  - UMLS (medical terminology) on GPU {self.gpu_allocation['umls']}")
 
     def custom_stop(self, stop_str, input_len=0):
         stopping_criteria = StoppingCriteriaList([CustomStoppingCriteria(stop_str, self.tokenizer, input_len)])
@@ -284,6 +372,266 @@ class MedRAG:
                 json.dump(answers, f, indent=4)
         
         return answers[0] if len(answers)==1 else answers, retrieved_snippets, scores
+
+    def medrag_answer_by_source(self, question, options=None, k=32, rrf_k=100, save_dir=None, **kwargs):
+        '''
+        Optimized MedCorp2 retrieval with 2 sources and GPU FAISS.
+        
+        Features:
+        - 2 sources: MedCorp (general literature) + UMLS (medical terminology)
+        - Simultaneous query generation for both sources (token efficient)
+        - GPU-based FAISS indexes (MedCorp on GPU 0, UMLS on GPU 1)
+        - 1 shared embedding model (GPU memory efficiency)
+        - Document summarization for long contexts (>1000 tokens)
+        
+        question (str): question to be answered
+        options (Dict[str, str]): options to be chosen from
+        k (int): total number of snippets to retrieve (distributed across 2 sources)
+        rrf_k (int): parameter for Reciprocal Rank Fusion
+        save_dir (str): directory to save the results
+        '''
+        if not self.rag:
+            # If RAG is disabled, fall back to regular CoT
+            return self.medrag_answer(question, options, k, rrf_k, save_dir, **kwargs)
+        
+        if self.corpus_name != "MedCorp2":
+            raise ValueError("medrag_answer_by_source only works with MedCorp2 corpus")
+        
+        if options is not None:
+            options = '\n'.join([key+". "+options[key] for key in sorted(options.keys())])
+        else:
+            options = ''
+
+        # Check if source retrievers are pre-initialized
+        if not hasattr(self, 'source_retrievers') or not self.source_retrievers:
+            raise RuntimeError("Source retrievers not initialized. Please check MedCorp2 initialization.")
+
+        # Use pre-initialized 2 source retrievers (each with own GPU FAISS)
+        sources = [src for src in self.sources]  # ["medcorp", "umls"]
+        
+        # Distribute k across 2 sources (roughly equal with remainder to MedCorp)
+        k_medcorp = k // 2 + k % 2  # Give extra to general literature if odd
+        k_umls = k // 2
+        k_distribution = {"medcorp": k_medcorp, "umls": k_umls}
+        
+        print(f"Retrieving {k_medcorp} docs from MedCorp, {k_umls} docs from UMLS")
+        
+        all_retrieved_snippets = []
+        all_scores = []
+        source_contexts = []
+        
+        if save_dir is not None and not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        
+        # Generate both queries simultaneously (token efficient)
+        options_text = f"Options: {options}" if options else ""
+        
+        dual_query_prompt = dual_query_generation.render(
+            question=question,
+            options_text=options_text
+        )
+        
+        query_messages = [
+            {"role": "system", "content": "You are a helpful assistant that generates concise search queries. Output only the requested format, no explanations."},
+            {"role": "user", "content": dual_query_prompt}
+        ]
+        
+        # Generate both queries in one call
+        print("Generating queries for both sources...")
+        dual_queries = self.generate(query_messages, **kwargs)
+        dual_queries = re.sub(r'\s+', ' ', dual_queries.strip())
+        
+        # Parse the dual query response (improved parsing for concise format)
+        queries = {}
+        try:
+            # Remove any thinking/explanation text if present
+            if '<think>' in dual_queries:
+                # Extract only the part after </think> or find the actual queries
+                dual_queries = re.sub(r'<think>.*?</think>', '', dual_queries, flags=re.DOTALL)
+            
+            # Clean up the response and extract queries line by line
+            lines = dual_queries.split('\n')
+            for line in lines:
+                line = line.strip()
+                if line.startswith('MedCorp:') and 'medcorp' not in queries:
+                    query = line.replace('MedCorp:', '').strip()
+                    # Remove brackets and stop at UMLS if it appears in the same line
+                    if 'UMLS:' in query:
+                        query = query.split('UMLS:')[0].strip()
+                    query = re.sub(r'^\[|\]$', '', query).strip()
+                    if query:
+                        queries['medcorp'] = query
+                elif line.startswith('UMLS:') and 'umls' not in queries:
+                    query = line.replace('UMLS:', '').strip()
+                    # Remove brackets if present
+                    query = re.sub(r'^\[|\]$', '', query).strip()
+                    if query:
+                        queries['umls'] = query
+            
+            # Additional fallback parsing for different formats
+            if len(queries) < 2:
+                # Try more precise regex extraction
+                medcorp_patterns = [
+                    r'MedCorp:\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*UMLS|\s*$)',
+                    r'(?:general|literature|clinical):\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*UMLS|\s*$)',
+                    r'1\.\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*2\.|\s*$)'
+                ]
+                
+                umls_patterns = [
+                    r'UMLS:\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*$)',
+                    r'(?:terminology|concept|semantic):\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*$)',
+                    r'2\.\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*$)'
+                ]
+                
+                for pattern in medcorp_patterns:
+                    if 'medcorp' not in queries:
+                        match = re.search(pattern, dual_queries, re.IGNORECASE | re.MULTILINE)
+                        if match:
+                            queries['medcorp'] = match.group(1).strip()
+                            break
+                
+                for pattern in umls_patterns:
+                    if 'umls' not in queries:
+                        match = re.search(pattern, dual_queries, re.IGNORECASE | re.MULTILINE)
+                        if match:
+                            queries['umls'] = match.group(1).strip()
+                            break
+            
+            # Final fallback - use the original question for missing queries
+            if 'medcorp' not in queries:
+                queries['medcorp'] = question
+            if 'umls' not in queries:
+                queries['umls'] = question
+                
+        except Exception as e:
+            print(f"  Warning: Failed to parse dual queries ({e}), using original question")
+            queries = {'medcorp': question, 'umls': question}
+        
+        # Log the raw dual queries for debugging
+        if save_dir is not None:
+            with open(os.path.join(save_dir, "dual_queries_raw.txt"), 'w') as f:
+                f.write(f"Raw dual query response:\n{dual_queries}\n\n")
+                f.write(f"Parsed queries:\n")
+                f.write(f"MedCorp: {queries.get('medcorp', 'N/A')}\n")
+                f.write(f"UMLS: {queries.get('umls', 'N/A')}\n")
+        
+        print(f"  MedCorp query: {queries.get('medcorp', 'N/A')}")
+        print(f"  UMLS query: {queries.get('umls', 'N/A')}")
+        
+        # Save dual queries early for debugging each question
+        if save_dir is not None:
+            with open(os.path.join(save_dir, "dual_queries.json"), 'w') as f:
+                json.dump({
+                    'raw_response': dual_queries,
+                    'parsed_queries': queries
+                }, f, indent=4)
+        
+        # Process both sources with GPU FAISS (no threading conflicts as separate GPUs)
+        for source in sources:
+            if source not in queries:
+                print(f"  Warning: No query found for {source}, skipping...")
+                continue
+                
+            tailored_query = queries[source]
+            k_source = k_distribution[source]
+            gpu_id = self.gpu_allocation[source]
+            
+            print(f"Processing {source} (GPU {gpu_id}, {k_source} docs)...")
+            
+            try:
+                source_retrieval_system = self.source_retrievers[source]
+                
+                # Retrieve documents using tailored query from GPU FAISS index
+                retrieved_snippets, scores = source_retrieval_system.retrieve(
+                    tailored_query, 
+                    k=k_source, 
+                    rrf_k=rrf_k
+                )
+                
+                # Add source information to each snippet
+                for snippet in retrieved_snippets:
+                    snippet['source_type'] = source
+                    snippet['tailored_query'] = tailored_query
+                
+                # Create context for this source with summarization for long documents
+                source_context = f"Source: {source.upper()}\n"
+                source_context += f"Query: {tailored_query}\n"
+                source_context += f"Retrieved Documents:\n"
+                
+                for idx, snippet in enumerate(retrieved_snippets):
+                    doc_content = snippet['content']
+                    
+                    # Summarize if document is too long (>1000 tokens)
+                    if "openai" in self.llm_name.lower():
+                        doc_tokens = len(self.tokenizer.encode(doc_content))
+                    else:
+                        doc_tokens = len(self.tokenizer.encode(doc_content, add_special_tokens=False))
+                    
+                    if doc_tokens > 1000:
+                        print(f"  Summarizing long document [{idx}] ({doc_tokens} tokens)")
+                        try:
+                            summary_prompt = f"Summarize this medical document in 200 words or less, focusing on key medical facts and findings:\n\n{doc_content}"
+                            summary_messages = [
+                                {"role": "system", "content": "You are a helpful assistant that summarizes medical documents concisely."},
+                                {"role": "user", "content": summary_prompt}
+                            ]
+                            doc_content = self.generate(summary_messages, **kwargs)
+                            doc_content = re.sub(r'\s+', ' ', doc_content.strip())
+                            snippet['content_summarized'] = True
+                        except Exception as e:
+                            print(f"    Warning: Failed to summarize document [{idx}]: {e}")
+                            snippet['content_summarized'] = False
+                    else:
+                        snippet['content_summarized'] = False
+                    
+                    source_context += f"Document [{idx}] (Title: {snippet['title']}) {doc_content}\n"
+                
+                all_retrieved_snippets.extend(retrieved_snippets)
+                all_scores.extend(scores)
+                source_contexts.append(source_context)
+                
+                print(f"  ✓ Retrieved {len(retrieved_snippets)} documents from {source} GPU FAISS")
+                
+            except Exception as e:
+                print(f"  ✗ Error retrieving from {source}: {e}")
+                continue
+        
+        # Combine all contexts
+        if len(source_contexts) == 0:
+            contexts = [""]
+        else:
+            combined_context = "\n\n".join(source_contexts)
+            # Truncate to context length if needed
+            if "openai" in self.llm_name.lower():
+                combined_context = self.tokenizer.decode(self.tokenizer.encode(combined_context)[:self.context_length])
+            elif "gemini" in self.llm_name.lower():
+                combined_context = self.tokenizer.decode(self.tokenizer.encode(combined_context)[:self.context_length])
+            else:
+                combined_context = self.tokenizer.decode(self.tokenizer.encode(combined_context, add_special_tokens=False)[:self.context_length])
+            contexts = [combined_context]
+        
+        # Generate answer using combined context
+        answers = []
+        for context in contexts:
+            prompt_medrag = self.templates["medrag_prompt"].render(context=context, question=question, options=options)
+            messages = [
+                {"role": "system", "content": self.templates["medrag_system"]},
+                {"role": "user", "content": prompt_medrag}
+            ]
+            ans = self.generate(messages, **kwargs)
+            answers.append(re.sub(r'\s+', ' ', ans))
+        
+        # Save results
+        if save_dir is not None:
+            with open(os.path.join(save_dir, "snippets_by_source_optimized.json"), 'w') as f:
+                json.dump(all_retrieved_snippets, f, indent=4)
+            with open(os.path.join(save_dir, "response_by_source_optimized.json"), 'w') as f:
+                json.dump(answers, f, indent=4)
+            with open(os.path.join(save_dir, "source_contexts_optimized.json"), 'w') as f:
+                json.dump(source_contexts, f, indent=4)
+        
+        print(f"✓ Retrieved total {len(all_retrieved_snippets)} documents from 2 GPU sources")
+        return answers[0] if len(answers)==1 else answers, all_retrieved_snippets, all_scores
 
     def i_medrag_answer(self, question, options=None, k=32, rrf_k=100, save_path = None, n_rounds=4, n_queries=3, qa_cache_path=None, **kwargs):
         if options is not None:

@@ -7,10 +7,9 @@ This script provides a drop-in replacement for the transformers pipeline using v
 import os
 import sys
 
-# Set GPU devices to cuda:3 and cuda:5 (2 GPUs for tensor parallelism)
-# Note: tensor_parallel_size must divide evenly into number of attention heads (32)
-# Qwen3-8B has 32 attention heads, so valid sizes are: 1, 2, 4, 8, 16, 32
-os.environ['CUDA_VISIBLE_DEVICES'] = '6,7'
+# Device assignment
+RETRIEVER_DEVICE = "cuda:0"  # First visible GPU (GPU 6) for embedding models
+LLM_DEVICE = "cuda:1"        # Second visible GPU (GPU 7) for VLLM LLM
 
 # Get the absolute path to MedRAG directory
 medrag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -46,7 +45,7 @@ class VLLMWrapper:
             # Only pass supported kwargs to VLLM
             vllm_kwargs = {k: v for k, v in kwargs.items() if k in vllm_supported_kwargs}
             
-            # Initialize VLLM with optimized settings
+            # Initialize VLLM with optimized settings on second GPU only
             # Reduce GPU utilization to prevent OOM - leave headroom for KV cache growth
             gpu_utilization = 0.7  # Reduced from 0.7 to prevent memory exhaustion
             
@@ -58,15 +57,14 @@ class VLLMWrapper:
             elif "qwen" in model_name.lower():
                 max_model_length = 8192  # Qwen3-8B supports 8192+ tokens
             elif "llama-3" in model_name.lower():
-                max_model_length = 8192
-            elif "llama-2" in model_name.lower():
                 max_model_length = 4096
             
             print(f"DEBUG: Model: {model_name}, Setting max_model_length={max_model_length}")
+            print(f"DEBUG: LLM will use single GPU: {LLM_DEVICE}")
                 
             self.llm = LLM(
                 model=model_name,
-                tensor_parallel_size=2,  # Using 2 GPUs (must divide 32 attention heads evenly)
+                tensor_parallel_size=1,  # Using single GPU for LLM (GPU 7)
                 trust_remote_code=True,
                 gpu_memory_utilization=gpu_utilization,
                 max_model_len=max_model_length,  # Explicitly set this to override config
@@ -116,7 +114,6 @@ class VLLMWrapper:
             max_tokens=max_new_tokens,  # This is the key - no conflict now
             stop=clean_kwargs.get('stop_sequences', None)
         )
-        # print(f"DEBUG: SamplingParams created with max_tokens={max_new_tokens}")
         
         # Generate response
         outputs = self.llm.generate([prompt], sampling_params)
@@ -375,20 +372,74 @@ def patch_medrag_for_vllm():
     
     transformers.pipeline = vllm_pipeline
 
+def init_medrag_with_device_separation(
+    llm_name="meta-llama/Llama-2-7b-chat-hf",
+    rag=True,
+    retriever_name="MedCPT",
+    corpus_name="MedCorp",
+    db_dir="./src/data/corpus",
+    corpus_cache=True,
+    HNSW=True,
+    retriever_device=None,
+    **kwargs
+):
+    """
+    Initialize MedRAG with GPU device separation for all corpus types.
+    
+    This function works with any corpus (MedCorp, MedCorp2, Textbooks, etc.)
+    and ensures retriever embeddings use a separate GPU from the LLM.
+    
+    Args:
+        llm_name: Model name for LLM
+        rag: Whether to enable retrieval
+        retriever_name: Retriever to use (MedCPT, RRF-2, etc.)
+        corpus_name: Corpus to use (MedCorp, MedCorp2, Textbooks, etc.)
+        db_dir: Directory containing corpus data
+        corpus_cache: Whether to cache corpus in memory
+        HNSW: Whether to use HNSW indexing
+        retriever_device: Device for retriever (default: RETRIEVER_DEVICE)
+        **kwargs: Additional arguments for MedRAG
+    
+    Returns:
+        MedRAG instance with device separation configured
+    """
+    retriever_device = retriever_device or RETRIEVER_DEVICE
+    
+    print(f"Initializing MedRAG with device separation:")
+    print(f"  LLM: {llm_name}")
+    print(f"  Retriever device: {retriever_device}")
+    print(f"  LLM device: {LLM_DEVICE} (handled by VLLM)")
+    if rag:
+        print(f"  Retriever: {retriever_name}")
+        print(f"  Corpus: {corpus_name}")
+    
+    # Initialize MedRAG with device separation for all corpus types
+    medrag = MedRAG(
+        llm_name=llm_name,
+        rag=rag,
+        retriever_name=retriever_name if rag else None,
+        corpus_name=corpus_name if rag else None,
+        db_dir=db_dir,
+        corpus_cache=corpus_cache,
+        HNSW=HNSW,
+        retriever_device=retriever_device,  # Apply to all corpus types
+        **kwargs
+    )
+    
+    print(f"✓ MedRAG initialized with device separation")
+    return medrag
+
 def run_medrag_with_vllm():
     """Run MedRAG with Llama-7B using vllm and medcorp dataset"""
     
     # Patch transformers.pipeline to use VLLM
     patch_medrag_for_vllm()
     
-    # Initialize MedRAG with Llama-7B model and medcorp dataset
-    # You can replace this with specific Llama-7B model names like:
-    # - "meta-llama/Llama-2-7b-chat-hf"  
-    # - "meta-llama/Meta-Llama-3-8B-Instruct" (closest to 7B)
-    # - Any other Llama-7B variant
-    model_name = "meta-llama/Llama-2-7b-chat-hf"  # Change this to your preferred Llama-7B model
+    model_name = "Qwen/Qwen3-8B"  # Change this to your preferred Llama-7B model
     
     print(f"Initializing MedRAG with {model_name} and MedCorp dataset...")
+    print(f"Retriever will use: {RETRIEVER_DEVICE}")
+    print(f"LLM will use: {LLM_DEVICE}")
     medrag = MedRAG(
         llm_name=model_name,
         rag=True,
@@ -396,7 +447,8 @@ def run_medrag_with_vllm():
         corpus_name="MedCorp",    # Combined medical corpus
         db_dir="./src/data/corpus",  # Use your existing corpus directory
         corpus_cache=True,        # Cache corpus in memory for speed
-        HNSW=True                # Use HNSW for faster retrieval
+        HNSW=True,               # Use HNSW for faster retrieval
+        retriever_device=RETRIEVER_DEVICE  # Use first GPU for retriever (GPU 6)
     )
     
     # Example medical question
