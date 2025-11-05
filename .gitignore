@@ -60,3 +60,4 @@ wandb/
 
 # Test outputs
 test_output.log
+prediction_by_source/

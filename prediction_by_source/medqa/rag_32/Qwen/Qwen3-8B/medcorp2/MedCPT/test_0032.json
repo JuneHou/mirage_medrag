@@ -1,6 +1,0 @@
-[
-  {
-    "step_by_step_thinking": "The patient presents with pancytopenia (low hemoglobin, leukopenia, thrombocytopenia) and blood cultures growing coagulase-negative staphylococci. Document 1 (UMLS) links chloramphenicol to bone marrow suppression, including pancytopenia. Document 14 (MEDCORP) also associates flucytosine with pancytopenia, but chloramphenicol is explicitly mentioned in the UMLS documents as causing bone marrow suppression. The patient's history of meningitis treatment with IV antibiotics, combined with the hematologic toxicity, points to chloramphenicol as the likely antibiotic, given its known adverse effect profile. Other options (doxycycline, trimethoprim/sulfamethoxazole, linezolid) are not explicitly linked to pancytopenia in the provided documents.",
-    "answer_choice": "D"
-  }
-]
