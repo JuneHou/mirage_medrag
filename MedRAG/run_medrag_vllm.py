@@ -104,8 +104,8 @@ class VLLMWrapper:
         # Extract stop sequences from kwargs
         stop_sequences = kwargs.get('stop_sequences', None)
         if stop_sequences is None:
-            # Enhanced stop sequences for medical debate to prevent repetition
-            stop_sequences = ["<|im_end|>", "</s>", "###", "\n\n\n", "**Answer:", "Answer:**"]
+            # Enhanced stop sequences for medical debate to prevent repetition - prioritize boxed format
+            stop_sequences = ["\\boxed{A}", "\\boxed{B}", "\\boxed{C}", "\\boxed{D}", "<|im_end|>", "</s>", "###", "\n\n\n", "**Answer:", "Answer:**"]
         
         # Ensure repetition penalty is meaningful (minimum 1.05 to prevent loops)
         if repetition_penalty < 1.05:
@@ -152,6 +152,7 @@ class VLLMWrapper:
         # Enhanced stop sequences for verification
         if stop_sequences is None:
             stop_sequences = [
+                "\\boxed{A}", "\\boxed{B}", "\\boxed{C}", "\\boxed{D}",  # Primary boxed format
                 "<|im_end|>", "</s>", "###", "\n\n\n",
                 "Answer: A", "Answer: B", "Answer: C", "Answer: D",
                 "**Answer: A**", "**Answer: B**", "**Answer: C**", "**Answer: D**",
