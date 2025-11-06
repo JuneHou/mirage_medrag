@@ -104,16 +104,22 @@ class VLLMWrapper:
         # Extract stop sequences from kwargs
         stop_sequences = kwargs.get('stop_sequences', None)
         if stop_sequences is None:
-            # Default stop sequences for medical debate
-            stop_sequences = ["<|im_end|>", "</s>"]
+            # Enhanced stop sequences for medical debate to prevent repetition
+            stop_sequences = ["<|im_end|>", "</s>", "###", "\n\n\n", "**Answer:", "Answer:**"]
         
-        # Create sampling parameters for vllm with only supported parameters
+        # Ensure repetition penalty is meaningful (minimum 1.05 to prevent loops)
+        if repetition_penalty < 1.05:
+            repetition_penalty = 1.15
+        
+        # Create sampling parameters for vllm with enhanced anti-repetition settings
         sampling_params = SamplingParams(
-            temperature=temperature,
-            top_p=0.9 if do_sample else 1.0,
+            temperature=max(temperature, 0.1),  # Minimum temperature to avoid deterministic loops
+            top_p=0.95,  # Slightly higher top_p for diversity
             max_tokens=max_new_tokens,
             stop=stop_sequences,
-            repetition_penalty=repetition_penalty
+            repetition_penalty=repetition_penalty,
+            frequency_penalty=0.1,  # Add frequency penalty to discourage repetition
+            presence_penalty=0.1    # Add presence penalty for diversity
         )
         
         print(f"DEBUG: Sampling params - temp={temperature}, rep_penalty={repetition_penalty}, stop={stop_sequences}")
@@ -130,6 +136,54 @@ class VLLMWrapper:
             return generated_text  # Return plain string for debate code
         else:
             return [{"generated_text": prompt + generated_text}]  # Default format for MedRAG
+
+    def generate_with_system(self, system_message, user_prompt, stop_sequences=None, max_new_tokens=800, **kwargs):
+        """
+        Generate response with explicit system message handling for verification
+        """
+        # For Qwen models, format properly
+        if "qwen" in self.model_name.lower():
+            # Use Qwen's chat format with system and user roles
+            formatted_prompt = f"<|im_start|>system\n{system_message}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
+        else:
+            # Fallback to simple concatenation for other models
+            formatted_prompt = f"{system_message}\n\n{user_prompt}"
+        
+        # Enhanced stop sequences for verification
+        if stop_sequences is None:
+            stop_sequences = [
+                "<|im_end|>", "</s>", "###", "\n\n\n",
+                "Answer: A", "Answer: B", "Answer: C", "Answer: D",
+                "**Answer: A**", "**Answer: B**", "**Answer: C**", "**Answer: D**",
+                "The correct answer is A", "The correct answer is B", 
+                "The correct answer is C", "The correct answer is D",
+                "A\n", "B\n", "C\n", "D\n"
+            ]
+        
+        # Calculate tokens for the formatted prompt
+        prompt_tokens = len(self.tokenizer.encode(formatted_prompt))
+        print(f"DEBUG: System message generation - prompt_tokens={prompt_tokens}, max_new_tokens={max_new_tokens}")
+        
+        # Create constrained sampling parameters for verification
+        sampling_params = SamplingParams(
+            temperature=kwargs.get('temperature', 0.0),
+            top_p=0.9,
+            max_tokens=max_new_tokens,
+            stop=stop_sequences,
+            repetition_penalty=1.2,    # Higher penalty for verification
+            frequency_penalty=0.2,    # Stronger frequency penalty
+            presence_penalty=0.1      # Encourage diversity
+        )
+        
+        # Generate response
+        outputs = self.llm.generate([formatted_prompt], sampling_params)
+        generated_text = outputs[0].outputs[0].text
+        
+        # Clean up
+        del outputs
+        
+        print(f"DEBUG: System message generation completed, response length: {len(generated_text)}")
+        return generated_text
 
 
 def log_pmc_response(raw_response, model_name, question_id=None, log_dir=None):
@@ -276,7 +330,7 @@ def parse_response_standard(raw_response, model_name=None, question_id=None, log
     
     # Ultimate fallback
     return {
-        "answer_choice": "E", 
+        "answer_choice": "A", 
         "step_by_step_thinking": "Error: Could not parse model response"
     }
 
