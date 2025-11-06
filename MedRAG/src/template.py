@@ -113,24 +113,22 @@ follow_up_instruction_ask = '''Please first analyze all the information in a sec
 follow_up_instruction_answer = '''Please first think step-by-step to analyze all the information in a section named Analysis (## Analysis). Then, please provide your answer choice in a section named Answer (## Answer).'''
 
 # Template for generating dual queries for 2-source MedCorp2 architecture
-dual_query_generation = Template('''
-Medical question: {{question}}
+dual_query_generation = Template('''Question: {{question}}
 {{options_text}}
 
 Generate exactly two search queries in this format:
 
-MedCorp: [your query for general medical literature]
-UMLS: [your query for medical terminology and concept relationships]
+MedCorp: [your query MedCorp]
+UMLS: [your query for UMLS]
 
 Requirements:
 - MedCorp query: Focus on clinical findings, treatments, diagnosis, patient management
 - UMLS query: Focus on medical terminology relationships, concept connections, drug-disease associations
 - Keep each query under 15 words
-- Output only the two lines above, no explanations
+- Output only the two lines above, NO explanations
 
 MedCorp: 
-UMLS: 
-''')
+UMLS: ''')
 
 # Simplified source descriptions for 2-source architecture
 source_descriptions = {

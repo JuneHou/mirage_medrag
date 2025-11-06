@@ -83,53 +83,49 @@ class VLLMWrapper:
         
     def __call__(self, prompt, **kwargs):
         """Make the wrapper callable like transformers.pipeline"""
-        # DEBUG: Track parameter flow
-        # print(f"DEBUG: VLLMWrapper received kwargs: {kwargs}")
-        
-        # Remove parameters that could conflict with VLLM/transformers
-        # These are parameters that the original pipeline might set but we handle differently
-        conflicting_params = {'max_new_tokens', 'truncation', 'stopping_criteria', 'return_full_text'}
-        clean_kwargs = {k: v for k, v in kwargs.items() if k not in conflicting_params}
-        # print(f"DEBUG: Removed conflicting params, clean_kwargs: {clean_kwargs}")
-        
         # Extract relevant parameters and set defaults
-        do_sample = clean_kwargs.get('do_sample', False)
+        do_sample = kwargs.get('do_sample', False)
+        temperature = kwargs.get('temperature', 0.0)
+        
+        # Support repetition penalty for better generation quality
+        repetition_penalty = kwargs.get('repetition_penalty', 1.0)
         
         # Original MedRAG uses max_length for total sequence length
         # For VLLM, we need to calculate max_new_tokens from max_length
-        max_length = clean_kwargs.get('max_length', 2048)
-        # print(f"DEBUG: Using max_length={max_length}")
+        max_length = kwargs.get('max_length', 2048)
         
         # Calculate how many tokens are already in the prompt
         prompt_tokens = len(self.tokenizer.encode(prompt))
         
         # Calculate max_new_tokens as the difference
         max_new_tokens = max(1, max_length - prompt_tokens)  # At least 1 token
-        print(f"DEBUG: Calculated max_new_tokens={max_new_tokens} (max_length={max_length} - prompt_tokens={prompt_tokens})")
+        print(f"DEBUG: VLLMWrapper - max_new_tokens={max_new_tokens} (max_length={max_length} - prompt_tokens={prompt_tokens})")
         
-        # Create sampling parameters for vllm
+        # Extract stop sequences from kwargs
+        stop_sequences = kwargs.get('stop_sequences', None)
+        if stop_sequences is None:
+            # Default stop sequences for medical debate
+            stop_sequences = ["<|im_end|>", "</s>"]
+        
+        # Create sampling parameters for vllm with only supported parameters
         sampling_params = SamplingParams(
-            temperature=0.0 if not do_sample else 0.7,
+            temperature=temperature,
             top_p=0.9 if do_sample else 1.0,
-            max_tokens=max_new_tokens,  # This is the key - no conflict now
-            stop=clean_kwargs.get('stop_sequences', None)
+            max_tokens=max_new_tokens,
+            stop=stop_sequences,
+            repetition_penalty=repetition_penalty
         )
+        
+        print(f"DEBUG: Sampling params - temp={temperature}, rep_penalty={repetition_penalty}, stop={stop_sequences}")
         
         # Generate response
         outputs = self.llm.generate([prompt], sampling_params)
         generated_text = outputs[0].outputs[0].text
-        print(f"Generated text: {generated_text[:300]}...")  # Print first 300 chars
-        
-        # # DEBUG: Print response details
-        # print(f"DEBUG: VLLM generated response length: {len(generated_text)}")
-        # print(f"DEBUG: VLLM raw response: {generated_text[:300]}...")
         
         # Clean up to prevent memory leaks
         del outputs
         
-        # Return in the expected format (similar to transformers.pipeline)
-        # Note: MedRAG expects to extract the generated part by removing the prompt
-        # For debate code compatibility, also support direct string return
+        # Return format handling
         if kwargs.get('return_format') == 'string':
             return generated_text  # Return plain string for debate code
         else:

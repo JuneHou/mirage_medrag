@@ -156,10 +156,10 @@ class MedRAG:
             self.templates["follow_up_ask"] = follow_up_instruction_ask
             self.templates["follow_up_answer"] = follow_up_instruction_answer
         elif self.corpus_name == "MedCorp2":
-            print(f"DEBUG: Using optimized 2-source retrieval for MedCorp2 with {self.retriever_name}")
-            print("  - MedCorp: Combined general medical literature (GPU 1)")  
-            print("  - UMLS: Medical terminology and relationships (GPU 0)")
-            # Pre-warm initialize all source retrieval systems to avoid per-query initialization overhead
+            print(f"DEBUG: Using simplified 2-source retrieval for MedCorp2 with {self.retriever_name}")
+            print("  - MedCorp: Combined general medical literature (direct question querying)")  
+            print("  - UMLS: Medical terminology and relationships (direct question querying)")
+            # Pre-warm initialize 2 source retrieval systems to avoid per-query initialization overhead
             self._initialize_source_retrievers()
             self.answer = self.medrag_answer_by_source
         else:
@@ -375,14 +375,14 @@ class MedRAG:
 
     def medrag_answer_by_source(self, question, options=None, k=32, rrf_k=100, save_dir=None, **kwargs):
         '''
-        Optimized MedCorp2 retrieval with 2 sources and GPU FAISS.
+        Simplified MedCorp2 retrieval with 2 sources and direct question querying.
         
         Features:
         - 2 sources: MedCorp (general literature) + UMLS (medical terminology)
-        - Simultaneous query generation for both sources (token efficient)
-        - GPU-based FAISS indexes (MedCorp on GPU 0, UMLS on GPU 1)
+        - Direct question querying (no LLM query generation - token efficient)
+        - GPU-based FAISS indexes (MedCorp on GPU 1, UMLS on GPU 0)  
         - 1 shared embedding model (GPU memory efficiency)
-        - Document summarization for long contexts (>1000 tokens)
+        - Original MedRAG design: question used directly as retrieval query
         
         question (str): question to be answered
         options (Dict[str, str]): options to be chosen from
@@ -423,116 +423,10 @@ class MedRAG:
         if save_dir is not None and not os.path.exists(save_dir):
             os.makedirs(save_dir)
         
-        # Generate both queries simultaneously (token efficient)
-        options_text = f"Options: {options}" if options else ""
-        
-        dual_query_prompt = dual_query_generation.render(
-            question=question,
-            options_text=options_text
-        )
-        
-        query_messages = [
-            {"role": "system", "content": "You are a helpful assistant that generates concise search queries. Output only the requested format, no explanations."},
-            {"role": "user", "content": dual_query_prompt}
-        ]
-        
-        # Generate both queries in one call
-        print("Generating queries for both sources...")
-        dual_queries = self.generate(query_messages, **kwargs)
-        dual_queries = re.sub(r'\s+', ' ', dual_queries.strip())
-        
-        # Parse the dual query response (improved parsing for concise format)
-        queries = {}
-        try:
-            # Remove any thinking/explanation text if present
-            if '<think>' in dual_queries:
-                # Extract only the part after </think> or find the actual queries
-                dual_queries = re.sub(r'<think>.*?</think>', '', dual_queries, flags=re.DOTALL)
-            
-            # Clean up the response and extract queries line by line
-            lines = dual_queries.split('\n')
-            for line in lines:
-                line = line.strip()
-                if line.startswith('MedCorp:') and 'medcorp' not in queries:
-                    query = line.replace('MedCorp:', '').strip()
-                    # Remove brackets and stop at UMLS if it appears in the same line
-                    if 'UMLS:' in query:
-                        query = query.split('UMLS:')[0].strip()
-                    query = re.sub(r'^\[|\]$', '', query).strip()
-                    if query:
-                        queries['medcorp'] = query
-                elif line.startswith('UMLS:') and 'umls' not in queries:
-                    query = line.replace('UMLS:', '').strip()
-                    # Remove brackets if present
-                    query = re.sub(r'^\[|\]$', '', query).strip()
-                    if query:
-                        queries['umls'] = query
-            
-            # Additional fallback parsing for different formats
-            if len(queries) < 2:
-                # Try more precise regex extraction
-                medcorp_patterns = [
-                    r'MedCorp:\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*UMLS|\s*$)',
-                    r'(?:general|literature|clinical):\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*UMLS|\s*$)',
-                    r'1\.\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*2\.|\s*$)'
-                ]
-                
-                umls_patterns = [
-                    r'UMLS:\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*$)',
-                    r'(?:terminology|concept|semantic):\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*$)',
-                    r'2\.\s*\[?([^\]\n\[]+?)(?:\s*\]|\s*$)'
-                ]
-                
-                for pattern in medcorp_patterns:
-                    if 'medcorp' not in queries:
-                        match = re.search(pattern, dual_queries, re.IGNORECASE | re.MULTILINE)
-                        if match:
-                            queries['medcorp'] = match.group(1).strip()
-                            break
-                
-                for pattern in umls_patterns:
-                    if 'umls' not in queries:
-                        match = re.search(pattern, dual_queries, re.IGNORECASE | re.MULTILINE)
-                        if match:
-                            queries['umls'] = match.group(1).strip()
-                            break
-            
-            # Final fallback - use the original question for missing queries
-            if 'medcorp' not in queries:
-                queries['medcorp'] = question
-            if 'umls' not in queries:
-                queries['umls'] = question
-                
-        except Exception as e:
-            print(f"  Warning: Failed to parse dual queries ({e}), using original question")
-            queries = {'medcorp': question, 'umls': question}
-        
-        # Log the raw dual queries for debugging
-        if save_dir is not None:
-            with open(os.path.join(save_dir, "dual_queries_raw.txt"), 'w') as f:
-                f.write(f"Raw dual query response:\n{dual_queries}\n\n")
-                f.write(f"Parsed queries:\n")
-                f.write(f"MedCorp: {queries.get('medcorp', 'N/A')}\n")
-                f.write(f"UMLS: {queries.get('umls', 'N/A')}\n")
-        
-        print(f"  MedCorp query: {queries.get('medcorp', 'N/A')}")
-        print(f"  UMLS query: {queries.get('umls', 'N/A')}")
-        
-        # Save dual queries early for debugging each question
-        if save_dir is not None:
-            with open(os.path.join(save_dir, "dual_queries.json"), 'w') as f:
-                json.dump({
-                    'raw_response': dual_queries,
-                    'parsed_queries': queries
-                }, f, indent=4)
-        
+        # Use original question directly as query for both sources (no LLM generation)        
         # Process both sources with GPU FAISS (no threading conflicts as separate GPUs)
         for source in sources:
-            if source not in queries:
-                print(f"  Warning: No query found for {source}, skipping...")
-                continue
-                
-            tailored_query = queries[source]
+            query = question  # Use original question directly
             k_source = k_distribution[source]
             gpu_id = self.gpu_allocation[source]
             
@@ -541,9 +435,9 @@ class MedRAG:
             try:
                 source_retrieval_system = self.source_retrievers[source]
                 
-                # Retrieve documents using tailored query from GPU FAISS index
+                # Retrieve documents using original question from GPU FAISS index
                 retrieved_snippets, scores = source_retrieval_system.retrieve(
-                    tailored_query, 
+                    query, 
                     k=k_source, 
                     rrf_k=rrf_k
                 )
@@ -551,40 +445,15 @@ class MedRAG:
                 # Add source information to each snippet
                 for snippet in retrieved_snippets:
                     snippet['source_type'] = source
-                    snippet['tailored_query'] = tailored_query
+                    snippet['query_used'] = query
                 
-                # Create context for this source with summarization for long documents
+                # Create context for this source
                 source_context = f"Source: {source.upper()}\n"
-                source_context += f"Query: {tailored_query}\n"
+                source_context += f"Query: {query}\n"
                 source_context += f"Retrieved Documents:\n"
                 
                 for idx, snippet in enumerate(retrieved_snippets):
-                    doc_content = snippet['content']
-                    
-                    # Summarize if document is too long (>1000 tokens)
-                    if "openai" in self.llm_name.lower():
-                        doc_tokens = len(self.tokenizer.encode(doc_content))
-                    else:
-                        doc_tokens = len(self.tokenizer.encode(doc_content, add_special_tokens=False))
-                    
-                    if doc_tokens > 1000:
-                        print(f"  Summarizing long document [{idx}] ({doc_tokens} tokens)")
-                        try:
-                            summary_prompt = f"Summarize this medical document in 200 words or less, focusing on key medical facts and findings:\n\n{doc_content}"
-                            summary_messages = [
-                                {"role": "system", "content": "You are a helpful assistant that summarizes medical documents concisely."},
-                                {"role": "user", "content": summary_prompt}
-                            ]
-                            doc_content = self.generate(summary_messages, **kwargs)
-                            doc_content = re.sub(r'\s+', ' ', doc_content.strip())
-                            snippet['content_summarized'] = True
-                        except Exception as e:
-                            print(f"    Warning: Failed to summarize document [{idx}]: {e}")
-                            snippet['content_summarized'] = False
-                    else:
-                        snippet['content_summarized'] = False
-                    
-                    source_context += f"Document [{idx}] (Title: {snippet['title']}) {doc_content}\n"
+                    source_context += f"Document [{idx}] (Title: {snippet['title']}) {snippet['content']}\n"
                 
                 all_retrieved_snippets.extend(retrieved_snippets)
                 all_scores.extend(scores)
@@ -623,14 +492,14 @@ class MedRAG:
         
         # Save results
         if save_dir is not None:
-            with open(os.path.join(save_dir, "snippets_by_source_optimized.json"), 'w') as f:
+            with open(os.path.join(save_dir, "snippets_by_source.json"), 'w') as f:
                 json.dump(all_retrieved_snippets, f, indent=4)
-            with open(os.path.join(save_dir, "response_by_source_optimized.json"), 'w') as f:
+            with open(os.path.join(save_dir, "response_by_source.json"), 'w') as f:
                 json.dump(answers, f, indent=4)
-            with open(os.path.join(save_dir, "source_contexts_optimized.json"), 'w') as f:
+            with open(os.path.join(save_dir, "source_contexts.json"), 'w') as f:
                 json.dump(source_contexts, f, indent=4)
         
-        print(f"✓ Retrieved total {len(all_retrieved_snippets)} documents from 2 GPU sources")
+        print(f"✓ Retrieved total {len(all_retrieved_snippets)} documents from 2 sources using direct question querying")
         return answers[0] if len(answers)==1 else answers, all_retrieved_snippets, all_scores
 
     def i_medrag_answer(self, question, options=None, k=32, rrf_k=100, save_path = None, n_rounds=4, n_queries=3, qa_cache_path=None, **kwargs):
