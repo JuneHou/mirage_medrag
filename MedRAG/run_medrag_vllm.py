@@ -85,7 +85,7 @@ class VLLMWrapper:
         """Make the wrapper callable like transformers.pipeline"""
         # Extract relevant parameters and set defaults
         do_sample = kwargs.get('do_sample', False)
-        temperature = kwargs.get('temperature', 0.0)
+        temperature = 0.7
         
         # Support repetition penalty for better generation quality
         repetition_penalty = kwargs.get('repetition_penalty', 1.0)
@@ -105,7 +105,7 @@ class VLLMWrapper:
         stop_sequences = kwargs.get('stop_sequences', None)
         if stop_sequences is None:
             # Enhanced stop sequences for medical debate to prevent repetition - prioritize boxed format
-            stop_sequences = ["\\boxed{A}", "\\boxed{B}", "\\boxed{C}", "\\boxed{D}", "<|im_end|>", "</s>", "###", "\n\n\n", "**Answer:", "Answer:**"]
+            stop_sequences = ["\\boxed{A}\n", "\\boxed{B}\n", "\\boxed{C}\n", "\\boxed{D}\n", "<|im_end|>", "</s>", "###", "\n\n\n"]
         
         # Ensure repetition penalty is meaningful (minimum 1.05 to prevent loops)
         if repetition_penalty < 1.05:
@@ -113,7 +113,7 @@ class VLLMWrapper:
         
         # Create sampling parameters for vllm with enhanced anti-repetition settings
         sampling_params = SamplingParams(
-            temperature=max(temperature, 0.1),  # Minimum temperature to avoid deterministic loops
+            temperature=0.7,  # Minimum temperature to avoid deterministic loops
             top_p=0.95,  # Slightly higher top_p for diversity
             max_tokens=max_new_tokens,
             stop=stop_sequences,
@@ -152,13 +152,12 @@ class VLLMWrapper:
         # Enhanced stop sequences for verification
         if stop_sequences is None:
             stop_sequences = [
-                "\\boxed{A}", "\\boxed{B}", "\\boxed{C}", "\\boxed{D}",  # Primary boxed format
+                "\\boxed{A}\n", "\\boxed{B}\n", "\\boxed{C}\n", "\\boxed{D}\n",  # Primary boxed format
                 "<|im_end|>", "</s>", "###", "\n\n\n",
-                "Answer: A", "Answer: B", "Answer: C", "Answer: D",
-                "**Answer: A**", "**Answer: B**", "**Answer: C**", "**Answer: D**",
-                "The correct answer is A", "The correct answer is B", 
-                "The correct answer is C", "The correct answer is D",
-                "A\n", "B\n", "C\n", "D\n"
+                "Answer: A\n", "Answer: B\n", "Answer: C\n", "Answer: D\n",
+                "The correct answer is A\n", "The correct answer is B\n", 
+                "The correct answer is C\n", "The correct answer is D\n",
+                "Option A\n", "Option B\n", "Option C\n", "Option D\n"
             ]
         
         # Calculate tokens for the formatted prompt
@@ -167,7 +166,7 @@ class VLLMWrapper:
         
         # Create constrained sampling parameters for verification
         sampling_params = SamplingParams(
-            temperature=kwargs.get('temperature', 0.0),
+            temperature=0.7,
             top_p=0.9,
             max_tokens=max_new_tokens,
             stop=stop_sequences,

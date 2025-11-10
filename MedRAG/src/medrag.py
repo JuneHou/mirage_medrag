@@ -78,7 +78,7 @@ class MedRAG:
             self.model = genai.GenerativeModel(
                 model_name=self.llm_name.split('/')[-1],
                 generation_config={
-                    "temperature": 0,
+                    "temperature": 0.7,
                     "max_output_tokens": 2048,
                 }
             )
