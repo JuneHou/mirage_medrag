@@ -222,7 +222,19 @@ class Retriever:
             hits = self.index.search(question[0], k=k)
             res_[0].append(np.array([h.score for h in hits]))
             ids = [h.docid for h in hits]
-            indices = [{"source": '_'.join(h.docid.split('_')[:-1]), "index": eval(h.docid.split('_')[-1])} for h in hits]
+            # Handle different document ID formats safely without eval()
+            indices = []
+            for h in hits:
+                docid_parts = h.docid.split('_')
+                # Try to parse the last part as an integer index
+                try:
+                    index_part = int(docid_parts[-1])
+                    source_part = '_'.join(docid_parts[:-1])
+                    indices.append({"source": source_part, "index": index_part})
+                except ValueError:
+                    # If last part isn't an integer, use the full docid as source and 0 as index
+                    # This handles UMLS-style IDs like "UMLS_R0_L0_C22" and single-word docids
+                    indices.append({"source": h.docid, "index": 0})
         else:
             with torch.no_grad():
                 query_embed = self.embedding_function.encode(question, **kwarg)
@@ -242,7 +254,46 @@ class Retriever:
         Input: List of Dict( {"source": str, "index": int} )
         Output: List of str
         '''
-        return [json.loads(open(os.path.join(self.chunk_dir, i["source"]+".jsonl")).read().strip().split('\n')[i["index"]]) for i in indices]
+        output = []
+        for i in indices:
+            # Handle UMLS document IDs that come from BM25 (full docid as source, index=0)
+            if i["index"] == 0 and i["source"].startswith("UMLS_"):
+                # Search for the document ID across all UMLS files
+                doc_id = i["source"]
+                found = False
+                
+                # Get all UMLS files in the chunk directory
+                import glob
+                umls_files = glob.glob(os.path.join(self.chunk_dir, "umls_run*.jsonl"))
+                
+                for umls_file in umls_files:
+                    try:
+                        with open(umls_file, 'r') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line:
+                                    doc = json.loads(line)
+                                    if doc.get("id") == doc_id:
+                                        output.append(doc)
+                                        found = True
+                                        break
+                        if found:
+                            break
+                    except (json.JSONDecodeError, FileNotFoundError):
+                        continue
+                
+                if not found:
+                    # Fallback: create a minimal document
+                    output.append({"id": doc_id, "title": doc_id, "content": "Document not found"})
+            else:
+                # Standard handling: source is filename (without .jsonl), index is line number
+                try:
+                    output.append(json.loads(open(os.path.join(self.chunk_dir, i["source"]+".jsonl")).read().strip().split('\n')[i["index"]]))
+                except (IndexError, FileNotFoundError, json.JSONDecodeError):
+                    # Fallback for any parsing errors
+                    output.append({"id": f"{i['source']}_{i['index']}", "title": "Error", "content": "Document parsing failed"})
+        
+        return output
 
 class RetrievalSystem:
 
@@ -471,6 +522,37 @@ class DocExtracter:
                                 continue
                     except (ValueError, IndexError, json.JSONDecodeError, FileNotFoundError):
                         pass
+                
+                # Handle BM25 UMLS document IDs (format: UMLS_R17_L3_C1958)
+                if id_key not in self.dict and id_key.startswith('UMLS_'):
+                    # Search for the document ID across all UMLS files
+                    found = False
+                    import glob
+                    umls_files = glob.glob(os.path.join(self.db_dir, 'umls', 'chunk', 'umls_run*.jsonl'))
+                    
+                    for umls_file in umls_files:
+                        try:
+                            with open(umls_file, 'r') as f:
+                                for line in f:
+                                    line = line.strip()
+                                    if line:
+                                        doc = json.loads(line)
+                                        if doc.get("id") == id_key:
+                                            doc.pop("contents", None)
+                                            output.append(doc)
+                                            found = True
+                                            break
+                            if found:
+                                break
+                        except (json.JSONDecodeError, FileNotFoundError):
+                            continue
+                    
+                    if found:
+                        continue
+                    else:
+                        # Fallback: create a minimal document if not found
+                        output.append({"id": id_key, "title": id_key, "content": "Document not found"})
+                        continue
                 
                 item = self.dict[id_key]
                 output.append(item)
