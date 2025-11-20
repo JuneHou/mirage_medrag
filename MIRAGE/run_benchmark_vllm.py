@@ -28,7 +28,7 @@ from tqdm import tqdm
 # Set GPU devices for separation - same as run_medrag_vllm.py
 # First GPU for retriever, second GPU for LLM
 # When CUDA_VISIBLE_DEVICES='6,7': cuda:0 maps to GPU 6, cuda:1 maps to GPU 7
-os.environ.setdefault('CUDA_VISIBLE_DEVICES', '1,7')
+os.environ.setdefault('CUDA_VISIBLE_DEVICES', '7,5')
 
 # Device assignment
 RETRIEVER_DEVICE = "cuda:0"  # First visible GPU for embedding models  

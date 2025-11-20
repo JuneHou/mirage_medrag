@@ -13,6 +13,7 @@ def evaluate(dataset, save_dir, split="test", locate_fun=locate_answer):
     pred = []
     empty_count = 0
     na_count = 0
+    error_count = 0
     answer_list = ["A", "B", "C", "D"]
     answer2idx = {ans:i for i, ans in enumerate(answer_list)}
     
@@ -25,6 +26,8 @@ def evaluate(dataset, save_dir, split="test", locate_fun=locate_answer):
         for it in json.load(open(fpath))[:1]:
             if isinstance(it, dict):
                 # New format: JSON object
+                if "error" in it:
+                    error_count += 1
                 answer_choice = it.get("answer_choice")
                 answers.append(locate_fun(answer_choice))
             else:
@@ -48,7 +51,7 @@ def evaluate(dataset, save_dir, split="test", locate_fun=locate_answer):
     
     acc = (np.array(truth) == np.array(pred)).mean()
     std = np.sqrt(acc * (1-acc) / len(truth))
-    return acc, std, flag
+    return acc, std, flag, error_count
 
 if __name__ == "__main__":
     
@@ -85,11 +88,11 @@ if __name__ == "__main__":
             save_dir = os.path.join(results_dir, dataset_name, "cot", llm_name)
         if os.path.exists(save_dir):
             if "pmc_llama" in llm_name.lower():
-                acc, std, flag = evaluate(datasets[dataset_name], save_dir, split, locate_answer4pub_llama)
+                acc, std, flag, error_count = evaluate(datasets[dataset_name], save_dir, split, locate_answer4pub_llama)
             else:
-                acc, std, flag = evaluate(datasets[dataset_name], save_dir, split)
+                acc, std, flag, error_count = evaluate(datasets[dataset_name], save_dir, split)
             scores.append(acc)
-            print("mean acc: {:.4f}; proportion std: {:.4f}".format(acc, std), end="")
+            print("mean acc: {:.4f}; proportion std: {:.4f}; errors: {}".format(acc, std, error_count), end="")
             if flag:
                 print(" (NOT COMPLETED)")
             else:

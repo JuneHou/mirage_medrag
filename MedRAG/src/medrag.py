@@ -188,7 +188,7 @@ class MedRAG:
             "umls": 0      # GPU 0 for medical terminology
         }
         
-        # Initialize shared embedding model once (GPU optimization)
+        # Initialize shared embedding model once (GPU optimization) - skip for BM25
         from utils import CustomizeSentenceTransformer, retriever_names
         from sentence_transformers import SentenceTransformer
         import torch
@@ -196,14 +196,20 @@ class MedRAG:
         # Get the actual model name from retriever_names mapping
         actual_model_name = retriever_names[self.retriever_name][0]  # Take first model for shared embedding
         print(f"  DEBUG: Mapped retriever '{self.retriever_name}' to model '{actual_model_name}'")
-        print(f"  Loading shared embedding model: {actual_model_name} on device {self.retriever_device}...")
         
-        if "contriever" in actual_model_name.lower():
-            self.shared_embedding_function = SentenceTransformer(actual_model_name, device=self.retriever_device)
+        # BM25 doesn't use embeddings - skip shared embedding initialization
+        if "bm25" in actual_model_name.lower():
+            print(f"  Skipping embedding model for BM25 (uses Lucene/Pyserini instead)")
+            self.shared_embedding_function = None
         else:
-            self.shared_embedding_function = CustomizeSentenceTransformer(actual_model_name, device=self.retriever_device)
-        self.shared_embedding_function.eval()
-        print(f"  ✓ Shared embedding model {actual_model_name} loaded on {self.retriever_device}")
+            print(f"  Loading shared embedding model: {actual_model_name} on device {self.retriever_device}...")
+            
+            if "contriever" in actual_model_name.lower():
+                self.shared_embedding_function = SentenceTransformer(actual_model_name, device=self.retriever_device)
+            else:
+                self.shared_embedding_function = CustomizeSentenceTransformer(actual_model_name, device=self.retriever_device)
+            self.shared_embedding_function.eval()
+            print(f"  ✓ Shared embedding model {actual_model_name} loaded on {self.retriever_device}")
         
         # Initialize 2 separate retrieval systems with GPU-specific FAISS
         self.source_retrievers = {}
@@ -220,14 +226,17 @@ class MedRAG:
                     db_dir=self.db_dir,
                     cache=self.corpus_cache,
                     HNSW=self.HNSW,
-                    device=gpu_device  # Use GPU-specific device for FAISS
+                    device=gpu_device,  # Use GPU-specific device for FAISS
+                    shared_embedding_function=self.shared_embedding_function  # Pass shared embedding function (None for BM25)
                 )
                 
                 # Replace individual embedding functions with shared one (GPU memory optimization)
-                for retriever_list in self.source_retrievers[source].retrievers:
-                    for retriever in retriever_list:
-                        if hasattr(retriever, 'embedding_function') and retriever.embedding_function is not None:
-                            retriever.embedding_function = self.shared_embedding_function
+                # Skip for BM25 as it doesn't use embeddings
+                if self.shared_embedding_function is not None:
+                    for retriever_list in self.source_retrievers[source].retrievers:
+                        for retriever in retriever_list:
+                            if hasattr(retriever, 'embedding_function') and retriever.embedding_function is not None:
+                                retriever.embedding_function = self.shared_embedding_function
                 
                 print(f"  ✓ {source} retriever ready on GPU {gpu_id} (shared embedding model, separate GPU FAISS)")
             except Exception as e:
@@ -259,7 +268,7 @@ class MedRAG:
             ans = response.candidates[0].content.parts[0].text
         else:
             stopping_criteria = None
-            prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=True)
             if "meditron" in self.llm_name.lower():
                 # stopping_criteria = custom_stop(["###", "User:", "\n\n\n"], self.tokenizer, input_len=len(self.tokenizer.encode(prompt_cot, add_special_tokens=True)))
                 stopping_criteria = self.custom_stop(["###", "User:", "\n\n\n"], input_len=len(self.tokenizer.encode(prompt, add_special_tokens=True)))

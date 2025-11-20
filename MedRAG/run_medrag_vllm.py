@@ -85,21 +85,18 @@ class VLLMWrapper:
         """Make the wrapper callable like transformers.pipeline"""
         # Extract relevant parameters and set defaults
         do_sample = kwargs.get('do_sample', False)
-        temperature = 0.7
+        temperature = kwargs.get('temperature', 0.7)  # Use passed temperature or default to 0.7
         
         # Support repetition penalty for better generation quality
         repetition_penalty = kwargs.get('repetition_penalty', 1.0)
         
-        # Original MedRAG uses max_length for total sequence length
-        # For VLLM, we need to calculate max_new_tokens from max_length
-        max_length = kwargs.get('max_length', 2048)
+        # Use max_length directly as max_new_tokens (no internal calculation)
+        # The calling code should pass the desired number of new tokens to generate
+        max_new_tokens = kwargs.get('max_length', 2048)
         
-        # Calculate how many tokens are already in the prompt
+        # Calculate tokens for debugging only
         prompt_tokens = len(self.tokenizer.encode(prompt))
-        
-        # Calculate max_new_tokens as the difference
-        max_new_tokens = max(1, max_length - prompt_tokens)  # At least 1 token
-        print(f"DEBUG: VLLMWrapper - max_new_tokens={max_new_tokens} (max_length={max_length} - prompt_tokens={prompt_tokens})")
+        print(f"DEBUG: VLLMWrapper - max_new_tokens={max_new_tokens} (input max_length={max_new_tokens}, prompt_tokens={prompt_tokens})")
         
         # Extract stop sequences from kwargs
         stop_sequences = kwargs.get('stop_sequences', None)
@@ -113,7 +110,7 @@ class VLLMWrapper:
         
         # Create sampling parameters for vllm with enhanced anti-repetition settings
         sampling_params = SamplingParams(
-            temperature=0.7,  # Minimum temperature to avoid deterministic loops
+            temperature=temperature,  # Use the actual temperature parameter
             top_p=0.95,  # Slightly higher top_p for diversity
             max_tokens=max_new_tokens,
             stop=stop_sequences,
