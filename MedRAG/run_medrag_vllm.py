@@ -55,16 +55,19 @@ class VLLMWrapper:
             if "pmc" in model_name.lower():
                 max_model_length = 2048  # PMC-LLaMA specific
             elif "qwen" in model_name.lower():
-                max_model_length = 8192  # Qwen3-8B supports 8192+ tokens
+                max_model_length = 32768  # Qwen3-8B supports 8192+ tokens
             elif "llama-3" in model_name.lower():
                 max_model_length = 4096
             
+            # Use tensor_parallel_size from kwargs if provided, otherwise default to 1
+            tensor_parallel_size = vllm_kwargs.pop('tensor_parallel_size', 1)
+            
             print(f"DEBUG: Model: {model_name}, Setting max_model_length={max_model_length}")
-            print(f"DEBUG: LLM will use single GPU: {LLM_DEVICE}")
+            print(f"DEBUG: LLM will use tensor_parallel_size={tensor_parallel_size}")
                 
             self.llm = LLM(
                 model=model_name,
-                tensor_parallel_size=1,  # Using single GPU for LLM (GPU 7)
+                tensor_parallel_size=tensor_parallel_size,
                 trust_remote_code=True,
                 gpu_memory_utilization=gpu_utilization,
                 max_model_len=max_model_length,  # Explicitly set this to override config
@@ -90,13 +93,13 @@ class VLLMWrapper:
         # Support repetition penalty for better generation quality
         repetition_penalty = kwargs.get('repetition_penalty', 1.0)
         
-        # Use max_length directly as max_new_tokens (no internal calculation)
-        # The calling code should pass the desired number of new tokens to generate
-        max_new_tokens = kwargs.get('max_length', 2048)
+        # Support both max_tokens and max_length parameters
+        # Prefer max_tokens if provided (standard VLLM parameter), fall back to max_length for compatibility
+        max_new_tokens = kwargs.get('max_tokens', kwargs.get('max_length', 4096))
         
         # Calculate tokens for debugging only
         prompt_tokens = len(self.tokenizer.encode(prompt))
-        print(f"DEBUG: VLLMWrapper - max_new_tokens={max_new_tokens} (input max_length={max_new_tokens}, prompt_tokens={prompt_tokens})")
+        print(f"DEBUG: VLLMWrapper - max_new_tokens={max_new_tokens} ")
         
         # Extract stop sequences from kwargs
         stop_sequences = kwargs.get('stop_sequences', None)
