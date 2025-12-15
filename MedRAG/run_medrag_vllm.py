@@ -47,15 +47,15 @@ class VLLMWrapper:
             
             # Initialize VLLM with optimized settings on second GPU only
             # Reduce GPU utilization to prevent OOM - leave headroom for KV cache growth
-            gpu_utilization = 0.7  # Reduced from 0.7 to prevent memory exhaustion
+            gpu_utilization = 0.4  # Conservative setting for tensor parallel across GPUs
             
             # Set explicit max_model_len to override any 512 token limits
             # This is critical for PMC-LLaMA models that might have incorrect config
-            max_model_length = 2048  # Match what we set in medrag.py
+            max_model_length = 32768  # Match what we set in medrag.py
             if "pmc" in model_name.lower():
                 max_model_length = 2048  # PMC-LLaMA specific
-            elif "qwen" in model_name.lower():
-                max_model_length = 32768  # Qwen3-8B supports 8192+ tokens
+            elif "qwen" in model_name.lower() or "format_enforcer" in model_name.lower():
+                max_model_length = 32768  # Qwen models and fine-tuned variants support 32K+ tokens
             elif "llama-3" in model_name.lower():
                 max_model_length = 4096
             
@@ -72,6 +72,7 @@ class VLLMWrapper:
                 gpu_memory_utilization=gpu_utilization,
                 max_model_len=max_model_length,  # Explicitly set this to override config
                 enforce_eager=True,  # Disable CUDA graphs to avoid 512 token limits
+                disable_log_stats=True,  # Reduce verbose logging
                 **vllm_kwargs
             )
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)

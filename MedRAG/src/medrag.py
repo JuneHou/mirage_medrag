@@ -124,7 +124,7 @@ class MedRAG:
                 print(f"DEBUG: PMC-LLaMA tokenizer.model_max_length set to: {self.tokenizer.model_max_length}")
             elif "qwen" in llm_name.lower():
                 self.tokenizer = AutoTokenizer.from_pretrained(self.llm_name, cache_dir=self.cache_dir)
-                self.max_length = 8192
+                self.max_length = 32768
                 self.context_length = 7168
                 self.tokenizer.model_max_length = self.max_length
                 # print(f"DEBUG: Set Qwen max_length={self.max_length}, context_length={self.context_length}")
